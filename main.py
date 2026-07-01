@@ -58,6 +58,7 @@ def clean_outputs() -> None:
         OUTPUTS / "implementation_queue.md",
         OUTPUTS / "memory_update_suggestions.md",
         OUTPUTS / "pr_draft.md",
+        OUTPUTS / "autonomous_flow.md",
     ]
     deleted = [f for f in files_to_delete if f.exists() and (f.unlink() or True)]
     if deleted:
@@ -91,6 +92,7 @@ def main():
     from services.memory_review_service import try_generate_memory_suggestions
     from services.approval_service import run_approval_generation
     from services.pr_preparation_service import generate_pr_draft
+    from services.autonomous_flow_service import run_autonomous_flow_generation
 
     # 会社メモリ読み込み（起動時に自動実行）
     company_memory = load_company_memory()
@@ -214,6 +216,10 @@ def main():
 
     # 承認センター（dashboard & memory_review 生成後に実行）
     run_approval_generation(OUTPUTS)
+
+    # 半自律実装フロー（承認済みの実装アイテムのみを対象に生成）
+    print("\n半自律実装フローを確認中...")
+    run_autonomous_flow_generation(OUTPUTS)
 
     # Notion 議事録保存（dashboard.md 生成後に実行）
     notion_log_db = os.getenv("NOTION_LOG_DATABASE_ID") or None

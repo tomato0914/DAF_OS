@@ -292,3 +292,7 @@ def get_pr_draft_summary(outputs: Path) -> dict | None:
         "pr_title": _extract_block("PRタイトル案"),
         "file_count": int(files_m.group(1)) if files_m else 0,
     }
+
+
+if __name__ == "__main__":
+    generate_pr_draft(BASE_DIR / "outputs")

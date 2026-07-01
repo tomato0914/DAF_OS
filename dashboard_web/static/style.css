@@ -596,6 +596,19 @@ body {
   color: var(--muted);
 }
 
+/* ─── Autonomous flow card ─── */
+.flow-card { border-color: var(--accent); }
+
+.flow-notice {
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
 /* ─── PR draft card ─── */
 .pr-draft-card { border-color: var(--warn); }
 

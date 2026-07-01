@@ -40,6 +40,67 @@ python dashboard_web/app.py
 
 ---
 
+## 半自律実装フロー（v2.0 Phase2）
+
+GitHub Issue → 実装キュー → CEO承認 → Claude Code実装 → PRドラフト生成、という一連の流れを1つにつなぐ機能です。
+**対象は承認センター（[Web 承認センター（v1.6）](#web-承認センターv16)）で承認済みの実装アイテムのみ**です。未承認・却下済みのものは一切含まれません。
+
+### 生成ファイル
+
+`outputs/autonomous_flow.md`
+
+承認済みの実装アイテムごとに、以下を含む指示書が生成されます：
+
+| 項目 | 内容 |
+|------|------|
+| 対象Issue | Issue番号・タイトル |
+| GitHub URL | 対象のGitHub Issueリンク |
+| 実装目的 | 背景・課題 |
+| やってほしいこと | 要件 |
+| 触ってよいファイル | 想定担当エージェントごとの編集可能パス |
+| 触らないファイル | `.env`・`main.py`・`crews/` など |
+| 完了条件 | Issueの完了条件 |
+| 実装後に確認すべきこと | 変更ファイル確認・完了条件チェックなど |
+| 実装後にPRドラフトを生成する手順 | `python main.py` または `python services/pr_preparation_service.py` の実行方法 |
+
+### ワークフロー
+
+```
+python main.py
+  ↓
+implementation_queue.md 生成（GitHub Open Issuesから）
+  ↓
+承認センター（Web/CLI）で実装アイテムを承認
+  ↓
+次回 python main.py 実行時、承認済みアイテムのみ autonomous_flow.md に反映
+  ↓
+outputs/autonomous_flow.md の指示書を Claude Code に貼り付けて実装
+  ↓
+実装完了後 python main.py（または pr_preparation_service.py 単体実行）で pr_draft.md を生成
+  ↓
+CEOが pr_draft.md を確認し、手動で commit / push / PR作成
+```
+
+### Webダッシュボードでの確認
+
+`http://localhost:8000` の「📊 ダッシュボード」タブに **🤖 実装準備完了** カードが表示され、対象Issue一覧が確認できます。`outputs/dashboard.md` の「10. 半自律実装フロー」セクションにも表示されます。
+
+### 動作仕様
+
+| 状況 | 動作 |
+|------|------|
+| 承認済みの実装アイテムがない | スキップ（エラーなし） |
+| 承認済みの実装アイテムがある | `outputs/autonomous_flow.md` を生成 |
+
+### 安全設計
+
+- **CEO承認済み（`outputs/approvals/approved/`）のアイテムのみを対象にします。** pending・rejected は含まれません。
+- **git commit / git push / Pull Request作成は一切自動実行しません。**
+- `.env` は読み取りません。
+- GitHub Token は表示しません（本サービスはローカルファイルのみを読み取ります）。
+
+---
+
 ## PR作成準備（v1.7）
 
 `python main.py` 実行後、コードの変更差分（`git diff`）から Pull Request 作成に必要な情報を自動生成します。**LLMは使用せず、`git`コマンドの出力のみから生成します。**

@@ -136,6 +136,10 @@ def parse_dashboard() -> dict:
     from services.pr_preparation_service import get_pr_draft_summary
     pr_draft = get_pr_draft_summary(BASE_DIR / "outputs")
 
+    # 半自律実装フロー（v2.0 Phase2）
+    from services.autonomous_flow_service import get_autonomous_flow_summary
+    autonomous_flow = get_autonomous_flow_summary(BASE_DIR / "outputs")
+
     return {
         "updated": updated,
         "status": status_rows,
@@ -150,6 +154,7 @@ def parse_dashboard() -> dict:
         "approved_count": approved_count,
         "rejected_count": rejected_count,
         "pr_draft": pr_draft,
+        "autonomous_flow": autonomous_flow,
         "raw": text,
     }
 
@@ -257,6 +262,22 @@ def api_pr_draft():
     """pr_draft.md の内容を返す（存在しない場合は exists: false）。"""
     try:
         path = OUTPUTS_DIR / "pr_draft.md"
+        if not path.exists():
+            return jsonify({"exists": False})
+        return jsonify({"exists": True, "content": path.read_text(encoding="utf-8")})
+    except Exception as e:
+        return jsonify({"exists": False, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# 半自律実装フロー API（v2.0 Phase2・読み取り専用）
+# ──────────────────────────────────────────
+
+@app.route("/api/autonomous_flow")
+def api_autonomous_flow():
+    """autonomous_flow.md の内容を返す（存在しない場合は exists: false）。"""
+    try:
+        path = OUTPUTS_DIR / "autonomous_flow.md"
         if not path.exists():
             return jsonify({"exists": False})
         return jsonify({"exists": True, "content": path.read_text(encoding="utf-8")})

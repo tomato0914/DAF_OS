@@ -329,6 +329,27 @@ def generate_dashboard(
         )
     lines.append(memory_section)
 
+    # 半自律実装フロー（v2.0 Phase2）
+    autonomous_flow_path = outputs / "autonomous_flow.md"
+    if autonomous_flow_path.exists():
+        flow_text = _read(autonomous_flow_path)
+        count_m = re.search(r"対象: CEO承認済みの実装アイテムのみ（(\d+)件）", flow_text)
+        flow_count = count_m.group(1) if count_m else "?"
+        flow_section = (
+            "\n## 10. 半自律実装フロー\n\n"
+            f"🤖 **実装準備完了。** CEO承認済みの実装アイテム（{flow_count}件）から "
+            "Claude Code 向けの実装指示書が生成されました。\n\n"
+            "> 📄 [autonomous_flow.md を開いて確認する](autonomous_flow.md)  \n"
+            "> ✅ 承認済みのアイテムのみが対象です。  \n"
+            "> ⚠️ 実装後の commit / push / PR作成は自動実行されません。手動で行ってください。\n"
+        )
+    else:
+        flow_section = (
+            "\n## 10. 半自律実装フロー\n\n"
+            "実装準備なし — 承認センターでアイテムを承認すると、次回 `python main.py` 実行時に生成されます。\n"
+        )
+    lines.append(flow_section)
+
     # PR作成準備（v1.7）
     pr_draft_path = outputs / "pr_draft.md"
     if pr_draft_path.exists():

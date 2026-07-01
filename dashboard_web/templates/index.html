@@ -211,9 +211,31 @@ function renderDashboard(data) {
         <span class="memory-hint">承認センタータブまたは outputs/memory_update_suggestions.md を確認してください。</span>
       </div>
     </div>` : ''}
+    ${renderAutonomousFlowCard(data.autonomous_flow)}
     ${renderPrDraftCard(data.pr_draft)}
   `;
   document.getElementById('tabDashboard').innerHTML = html;
+}
+
+function renderAutonomousFlowCard(flow) {
+  if (!flow) return '';
+  const issueRows = (flow.issues || []).map(i =>
+    `<li class="action-item"><span class="action-num">#${esc(i.number)}</span><span>${esc(i.title)}（担当: ${esc(i.assignee)}）</span></li>`
+  ).join('');
+  return `
+    <div class="card full flow-card">
+      <div class="card-title">🤖 実装準備完了</div>
+      <div class="flow-notice">
+        承認済みの実装アイテム <strong>${Number(flow.count)}件</strong> について、
+        Claude Code 向けの実装指示書が生成されました。
+      </div>
+      <ul class="actions-list">${issueRows}</ul>
+      <div class="pr-draft-notice">
+        📄 <code>outputs/autonomous_flow.md</code> を開き、指示書をClaude Codeに貼り付けて実装してください。
+        実装後は commit / push / PR作成を手動で行い、<code>outputs/pr_draft.md</code> を確認してください。
+      </div>
+    </div>
+  `;
 }
 
 function renderPrDraftCard(pr) {
