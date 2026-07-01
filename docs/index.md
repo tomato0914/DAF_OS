@@ -11,7 +11,9 @@ permalink: /
 ## 法的情報
 
 - [プライバシーポリシー](./privacy_policy)
+- [利用規約](./terms_of_service)
+- [プライバシーポリシー更新のお知らせ（2026年7月1日）](./update_notice)
 
 ---
 
-お問い合わせ：privacy@daf.example.com
+お問い合わせ：corinzzz7@gmail.com

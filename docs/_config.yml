@@ -7,7 +7,7 @@ theme: minima
 # リポジトリ名に合わせて baseurl を変更してください
 # 例: リポジトリが github.com/yourname/DAF_OS の場合 → /DAF_OS
 baseurl: "/DAF_OS"
-url: "https://yourname.github.io"
+url: "https://tomato0914.github.io"
 
 # Markdown設定
 markdown: kramdown

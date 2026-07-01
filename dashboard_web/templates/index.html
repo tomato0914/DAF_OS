@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DAF OS Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <h1>DAF OS Dashboard</h1>
+    <div class="subtitle">Digital Asset Factory — CEO View</div>
+  </div>
+  <div class="header-right">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="updated-time" id="updatedTime">読み込み中...</span>
+  </div>
+</header>
+
+<!-- タブナビゲーション -->
+<nav class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('dashboard')">📊 ダッシュボード</button>
+  <button class="tab-btn" onclick="switchTab('approvals')" id="tabApprovals">
+    ✅ 承認センター <span class="tab-badge" id="pendingBadge" style="display:none"></span>
+  </button>
+</nav>
+
+<!-- ダッシュボードタブ -->
+<main class="container" id="tabDashboard">
+  <div class="spinner full">
+    <div class="spin"></div>
+    <span>ダッシュボードを読み込んでいます...</span>
+  </div>
+</main>
+
+<!-- 承認センタータブ -->
+<main class="container" id="tabApprovalCenter" style="display:none">
+  <div class="card full" id="approvalContent">
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
+</main>
+
+<!-- 却下理由モーダル -->
+<div class="modal-backdrop" id="rejectModal" style="display:none">
+  <div class="modal">
+    <div class="modal-title">❌ 却下理由を入力</div>
+    <div class="modal-subtitle" id="rejectTargetTitle"></div>
+    <textarea class="reject-reason" id="rejectReason" placeholder="却下の理由を入力してください（省略可）" rows="4"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeRejectModal()">キャンセル</button>
+      <button class="btn btn-danger" onclick="submitReject()">却下する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ────────────────────────────────
+// タブ切り替え
+// ────────────────────────────────
+
+let currentTab = 'dashboard';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tabDashboard').style.display       = tab === 'dashboard' ? '' : 'none';
+  document.getElementById('tabApprovalCenter').style.display  = tab === 'approvals' ? '' : 'none';
+  event.currentTarget.classList.add('active');
+  if (tab === 'approvals') fetchApprovals();
+}
+
+// ────────────────────────────────
+// ダッシュボードレンダラー
+// ────────────────────────────────
+
+function stateClass(state) {
+  if (!state) return 'none';
+  if (state.includes('✅') || state.includes('完了')) return 'ok';
+  if (state.includes('⏳') || state.includes('生成中')) return 'wait';
+  if (state.includes('🔴') || state.includes('対応待ち') || state.includes('🔔') || state.includes('要確認')) return 'wait';
+  return 'none';
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function stripMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1');
+}
+
+function renderStatus(rows) {
+  if (!rows || rows.length === 0) return '<p style="color:var(--muted);font-size:.85rem">データなし</p>';
+  return `<div class="status-grid">` + rows.map(r => {
+    const num   = Object.values(r)[1];
+    const state = Object.values(r)[2] || '';
+    return `<div class="stat-box">
+      <div class="stat-label">${esc(r['項目'] || Object.values(r)[0])}</div>
+      <div class="stat-value ${stateClass(state)}">${esc(num)}</div>
+      <div class="stat-state">${esc(state)}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function renderActions(actions) {
+  if (!actions || actions.length === 0)
+    return '<p style="color:var(--muted);font-size:.85rem">アクションなし</p>';
+  return `<ul class="actions-list">` + actions.map((a, i) =>
+    `<li class="action-item"><span class="action-num">${i+1}</span><span>${esc(stripMarkdown(a))}</span></li>`
+  ).join('') + '</ul>';
+}
+
+function renderProposal(text) {
+  if (!text) return '<p style="color:var(--muted);font-size:.85rem">提案なし</p>';
+  return `<div class="proposal-text">${esc(text).replace(/\n/g,'<br>')}</div>`;
+}
+
+function renderProgress(blocks, agents) {
+  let html = '<div class="progress-list">';
+  (blocks || []).forEach(b => {
+    html += `<div class="progress-item">
+      <div class="progress-header">
+        <span class="progress-label">${esc(b.label)}</span>
+        <span class="progress-pct">${esc(b.pct)}%</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Number(b.pct)}%"></div></div>
+      <div class="progress-detail">${esc(b.detail)}</div>
+    </div>`;
+  });
+  html += '</div>';
+  if (agents && agents.length > 0) {
+    html += '<div style="margin-top:16px"><div class="card-title">AI社員稼働状況</div><div class="agents-grid">';
+    agents.forEach(a => {
+      html += `<span class="agent-chip ${a.active ? 'active' : 'inactive'}">
+        ${a.active ? '✅' : '⬜'} ${esc(a.name)}</span>`;
+    });
+    html += '</div></div>';
+  }
+  return html;
+}
+
+function renderGitHub(issues, enabled) {
+  if (!enabled || issues.length === 0) {
+    const msg = enabled
+      ? 'Open Issue はありません。'
+      : '<code>GITHUB_TOKEN</code> を .env に追加するとOpen Issueがここに表示されます。';
+    return `<div class="gh-disabled">${msg}</div>`;
+  }
+  return `<table class="issues-table">
+    <thead><tr><th>#</th><th>タイトル</th></tr></thead>
+    <tbody>` +
+    issues.map(i =>
+      `<tr>
+        <td class="issue-num"><a href="${esc(i.url)}" target="_blank">#${Number(i.number)}</a></td>
+        <td><a href="${esc(i.url)}" target="_blank">${esc(i.title)}</a></td>
+      </tr>`
+    ).join('') + `</tbody></table>`;
+}
+
+function renderDashboard(data) {
+  if (data.error) {
+    document.getElementById('tabDashboard').innerHTML =
+      `<div class="card full error-box">⚠️ ${esc(data.error)}</div>`;
+    return;
+  }
+  document.getElementById('updatedTime').textContent = '更新: ' + (data.updated || '—');
+
+  // 承認バッジ更新
+  const pending = (data.pending_approvals || []).length;
+  const badge = document.getElementById('pendingBadge');
+  if (pending > 0) {
+    badge.textContent = pending;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  const html = `
+    <div class="card full">
+      <div class="card-title">今日の状況</div>
+      ${renderStatus(data.status)}
+    </div>
+    <div class="card">
+      <div class="card-title">次にCEOがやること</div>
+      ${renderActions(data.actions)}
+    </div>
+    <div class="card">
+      <div class="card-title">最新のAI提案</div>
+      ${renderProposal(data.proposal)}
+    </div>
+    <div class="card">
+      <div class="card-title">進捗バー</div>
+      ${renderProgress(data.progress, data.agents)}
+    </div>
+    <div class="card">
+      <div class="card-title">GitHub Open Issues</div>
+      ${renderGitHub(data.github_issues, data.github_enabled)}
+    </div>
+    ${data.memory_suggestions ? `
+    <div class="card full memory-banner">
+      <div class="card-title">メモリ見直し提案</div>
+      <div class="memory-notice">
+        💡 <strong>AIからの提案があります</strong> — 会社メモリの見直し候補が生成されました。
+        <span class="memory-hint">承認センタータブまたは outputs/memory_update_suggestions.md を確認してください。</span>
+      </div>
+    </div>` : ''}
+    ${renderPrDraftCard(data.pr_draft)}
+  `;
+  document.getElementById('tabDashboard').innerHTML = html;
+}
+
+function renderPrDraftCard(pr) {
+  if (!pr) return '';
+  return `
+    <div class="card full pr-draft-card">
+      <div class="card-title">🔀 PR作成準備あり</div>
+      <div class="pr-draft-meta">
+        <div class="pr-draft-row"><span class="pr-draft-label">生成日時</span><span>${esc(pr.generated_at)}</span></div>
+        <div class="pr-draft-row"><span class="pr-draft-label">変更ファイル数</span><span>${Number(pr.file_count)}件</span></div>
+        <div class="pr-draft-row"><span class="pr-draft-label">推奨ブランチ名</span><code>${esc(pr.branch_name)}</code></div>
+        <div class="pr-draft-row"><span class="pr-draft-label">PRタイトル案</span><span>${esc(pr.pr_title)}</span></div>
+      </div>
+      <div class="pr-draft-notice">⚠️ commit / push / PR作成は自動実行されません。<code>outputs/pr_draft.md</code> を確認の上、手動で行ってください。</div>
+      <details class="ac-preview">
+        <summary>コミットメッセージ案を見る</summary>
+        <pre class="ac-pre">${esc(pr.commit_message)}</pre>
+      </details>
+    </div>
+  `;
+}
+
+// ────────────────────────────────
+// 承認センター
+// ────────────────────────────────
+
+let _pendingRejectId = null;
+
+function openRejectModal(id, title) {
+  _pendingRejectId = id;
+  document.getElementById('rejectTargetTitle').textContent = title;
+  document.getElementById('rejectReason').value = '';
+  document.getElementById('rejectModal').style.display = 'flex';
+  document.getElementById('rejectReason').focus();
+}
+
+function closeRejectModal() {
+  _pendingRejectId = null;
+  document.getElementById('rejectModal').style.display = 'none';
+}
+
+function submitReject() {
+  if (!_pendingRejectId) return;
+  const reason = document.getElementById('rejectReason').value.trim() || '（理由なし）';
+  doReject(_pendingRejectId, reason);
+  closeRejectModal();
+}
+
+function doApprove(id) {
+  fetch('/api/approvals/approve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id}),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.ok) fetchApprovals();
+    else alert('承認に失敗しました: ' + (res.error || ''));
+  })
+  .catch(e => alert('エラー: ' + e));
+}
+
+function doReject(id, reason) {
+  fetch('/api/approvals/reject', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id, reason}),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.ok) fetchApprovals();
+    else alert('却下に失敗しました: ' + (res.error || ''));
+  })
+  .catch(e => alert('エラー: ' + e));
+}
+
+function typeLabel(type) {
+  if (type === 'memory_review')  return { icon: '🧠', label: 'メモリ見直し', cls: 'type-memory' };
+  if (type === 'implementation') return { icon: '⚡', label: '実装キュー',   cls: 'type-impl'   };
+  return { icon: '📋', label: type, cls: '' };
+}
+
+function renderApprovals(data) {
+  const pending  = data.pending  || [];
+  const approved = data.approved_count || 0;
+  const rejected = data.rejected_count || 0;
+
+  // バッジ更新
+  const badge = document.getElementById('pendingBadge');
+  if (pending.length > 0) { badge.textContent = pending.length; badge.style.display = 'inline-block'; }
+  else badge.style.display = 'none';
+
+  let html = `
+    <div class="approval-summary">
+      <div class="approval-stat">
+        <span class="as-num warn">${pending.length}</span>
+        <span class="as-label">承認待ち</span>
+      </div>
+      <div class="approval-stat">
+        <span class="as-num ok">${approved}</span>
+        <span class="as-label">承認済み</span>
+      </div>
+      <div class="approval-stat">
+        <span class="as-num muted">${rejected}</span>
+        <span class="as-label">却下済み</span>
+      </div>
+    </div>
+  `;
+
+  if (pending.length === 0) {
+    html += `<div class="approval-empty">✅ 承認待ちアイテムはありません</div>`;
+  } else {
+    html += `<div class="approval-items">`;
+    pending.forEach(item => {
+      const t = typeLabel(item.type);
+      const preview = (item.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      html += `
+        <div class="approval-card" id="ac-${esc(item.id)}">
+          <div class="ac-header">
+            <div class="ac-meta">
+              <span class="ac-icon">${t.icon}</span>
+              <span class="ac-type ${t.cls}">${t.label}</span>
+            </div>
+            <div class="ac-btns">
+              <button class="btn btn-approve" onclick="doApprove('${esc(item.id)}')">✅ 承認</button>
+              <button class="btn btn-reject"  onclick="openRejectModal('${esc(item.id)}','${esc(item.title)}')">❌ 却下</button>
+            </div>
+          </div>
+          <div class="ac-title">${esc(item.title)}</div>
+          <details class="ac-preview">
+            <summary>内容を確認</summary>
+            <pre class="ac-pre">${preview}</pre>
+          </details>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('approvalContent').innerHTML = html;
+}
+
+function fetchApprovals() {
+  fetch('/api/approvals')
+    .then(r => r.json())
+    .then(renderApprovals)
+    .catch(e => {
+      document.getElementById('approvalContent').innerHTML =
+        `<div class="error-box">⚠️ 承認データの取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// ポーリング（5秒ごと）
+// ────────────────────────────────
+
+function fetchDashboard() {
+  fetch('/api/data')
+    .then(r => r.json())
+    .then(data => {
+      renderDashboard(data);
+      document.getElementById('statusDot').style.background = 'var(--success)';
+      document.getElementById('statusDot').style.boxShadow = '0 0 6px var(--success)';
+    })
+    .catch(() => {
+      document.getElementById('statusDot').style.background = 'var(--danger)';
+      document.getElementById('statusDot').style.boxShadow = '0 0 6px var(--danger)';
+    });
+}
+
+// キーボード: Esc でモーダルを閉じる
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeRejectModal();
+});
+// モーダル背景クリックで閉じる
+document.getElementById('rejectModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeRejectModal();
+});
+
+fetchDashboard();
+setInterval(fetchDashboard, 5000);
+setInterval(() => { if (currentTab === 'approvals') fetchApprovals(); }, 5000);
+</script>
+</body>
+</html>

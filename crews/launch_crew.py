@@ -23,8 +23,12 @@ def run_launch_crew(
     sirius_page_id: str | None = None,
     nova_page_id: str | None = None,
     cosmos_page_id: str | None = None,
+    company_memory: str = "",
 ) -> dict[str, str]:
     llm = build_llm(openrouter_api_key)
+
+    # 会社メモリがある場合、全タスクの冒頭に付加するプレフィックスを作る
+    _mem = f"{company_memory}\n\n" if company_memory else ""
 
     orion = create_orion(llm, notion_api_key=notion_api_key, page_id=orion_page_id)
     atlas = create_atlas(llm, notion_api_key=notion_api_key, page_id=atlas_page_id)
@@ -34,6 +38,7 @@ def run_launch_crew(
 
     task_sirius = Task(
         description=(
+            f"{_mem}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CPOとして、もふログのApp Store掲載用説明文を作成してください。\n"
             "ターゲットは初めて犬を飼った人です。\n\n"
@@ -52,6 +57,7 @@ def run_launch_crew(
 
     task_nova = Task(
         description=(
+            f"{_mem}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CMOとして、もふログのSNS投稿文を5本作成してください。\n"
             "ターゲットは初めて犬を飼った人です。\n\n"
@@ -70,6 +76,7 @@ def run_launch_crew(
 
     task_cosmos = Task(
         description=(
+            f"{_mem}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CIOとして、アプリ公開前の確認チェックリストを作成してください。\n\n"
             "以下の形式で出力してください：\n\n"
@@ -87,6 +94,7 @@ def run_launch_crew(
 
     task_atlas = Task(
         description=(
+            f"{_mem}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CTOとして、もふログ公開前の技術リスク確認レポートを作成してください。\n\n"
             "以下の形式で出力してください（report.md の一部として使用します）：\n\n"
@@ -102,6 +110,7 @@ def run_launch_crew(
 
     task_orion = Task(
         description=(
+            f"{_mem}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "Sirius・Nova・Cosmos・Atlasの成果物を踏まえて、"
             "COOとして最終提案書をまとめてください。\n\n"
@@ -125,6 +134,7 @@ def run_launch_crew(
 
     task_issues = Task(
         description=(
+            f"{_mem}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "会議の全成果物（App Store説明文・SNS投稿・チェックリスト・技術リスク・最終提案）を踏まえて、"
             "COOとして実装タスク（Issue）を3〜5個生成してください。\n\n"

@@ -116,17 +116,33 @@ App Storeの審査には以下が必要です。
 
 ---
 
-## 完了条件チェック（Issue #001より）
+## 完了条件チェック（Issue #41より）
 
-- [ ] プライバシーポリシーのドラフト作成 → `docs/privacy_policy.md` ✓
-- [ ] 法務チームによるレビュー完了 → **法務レビュー待ち**
-- [ ] アプリ内でのポリシー表示方法の確認 → `docs/privacy_policy_display_guide.md` ✓
+- [x] プライバシーポリシーのドラフト作成 → `docs/privacy_policy.md` v1.0
+- [x] 法務チームによるレビュー完了 → v1.1 として2026年7月1日施行
+- [x] アプリ内でのポリシー表示方法の確認 → 本ドキュメント
+- [x] 利用規約の制定 → `docs/terms_of_service.md` v1.0
+- [x] ユーザーへの更新通知 → `docs/update_notice.md`
+- [x] 公開URL確定 → `https://tomato0914.github.io/DAF_OS/privacy_policy`
+- [x] お問い合わせ先確定 → corinzzz7@gmail.com
+- [ ] アプリ内同意画面の実装（Atlas担当・次フェーズ）
 
 ---
 
-## 次のアクション
+## 公開URL一覧
 
-1. `docs/privacy_policy.md` を法務担当者に共有してレビューを依頼する
-2. プライバシーポリシーを公開するURLを決定する（GitHub Pages推奨）
-3. Atlas（CTO）に初回起動時の同意画面の実装を依頼する
-4. App Store Connect の「プライバシー」セクションへの回答内容を確定する
+| ページ | URL |
+|--------|-----|
+| プライバシーポリシー | `https://tomato0914.github.io/DAF_OS/privacy_policy` |
+| 利用規約 | `https://tomato0914.github.io/DAF_OS/terms_of_service` |
+| 更新通知 | `https://tomato0914.github.io/DAF_OS/update_notice` |
+
+App Store Connect の「プライバシーポリシーURL」欄に上記URLを入力してください。
+
+---
+
+## 次のアクション（残タスク）
+
+1. GitHub Pages にデプロイして公開URLの疎通確認
+2. Atlas（CTO）に初回起動時の同意画面の実装を依頼する
+3. App Store Connect の「プライバシー」セクションへの回答を入力する
