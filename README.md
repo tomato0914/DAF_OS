@@ -1172,6 +1172,50 @@ git push
 
 ---
 
+## データ暗号化（GitHub Issue #75）
+
+ローカルに保存する機密性の高いデータをAES暗号化（Fernet: AES-128-CBC + HMAC-SHA256）で保護するための共通モジュールです。DAF OS自体は現時点でエンドユーザーの個人データを保持しませんが、今後 `outputs/` などに機密データを保存する場合に備えて用意しています。
+
+### セットアップ
+
+```bash
+# 1. 暗号鍵を生成する
+python -c "from services.encryption_service import generate_key; print(generate_key())"
+
+# 2. .env に追加する
+echo "DAF_ENCRYPTION_KEY=<生成した値>" >> .env
+```
+
+### 使い方
+
+```python
+from services.encryption_service import encrypt_text, decrypt_text, encrypt_file, decrypt_file
+
+ciphertext = encrypt_text("秘密のデータ")
+plaintext = decrypt_text(ciphertext)
+
+# ファイル単位でも暗号化・復号できる
+encrypt_file(Path("secret.txt"))   # secret.txt.enc を生成（0o600に制限）
+decrypt_file(Path("secret.txt.enc"))
+```
+
+### 安全設計
+
+- 暗号鍵はコードにハードコードせず、`.env` の `DAF_ENCRYPTION_KEY` からのみ読み込む
+- 鍵の値をログ・例外メッセージ・標準出力に一切表示しない
+- 暗号化したファイルは書き込み時に `0o600`（所有者のみ読み書き可）に制限する
+- 外部APIを呼ばない
+
+### セキュリティテスト
+
+```bash
+python scripts/security_check_encryption.py
+```
+
+ラウンドトリップ（暗号化→復号）・平文の非露出・誤った鍵での復号拒否・鍵の非露出・ファイルのアクセス制御（0o600）を検証し、結果を `outputs/security_test_encryption.md` に保存します。テストは使い捨ての一時鍵のみを使用し、`.env` の実鍵には触れません。
+
+---
+
 ## トラブルシューティング
 
 - **OPENROUTER_API_KEY エラー**：`.env` にキーが正しく設定されているか確認

@@ -2,3 +2,4 @@ crewai==0.80.0
 python-dotenv==1.0.1
 notion-client>=3.1.0
 flask>=3.0.0
+cryptography>=42.0.0
