@@ -3,14 +3,17 @@ DAF OS v1.5 — CEO 承認サービス
 AIが生成した提案をCEOが承認・却下できる仕組みを提供する。
 
 ディレクトリ構造:
-  outputs/approvals/pending/   承認待ちファイル（実行ごとに再生成）
-  outputs/approvals/approved/  承認済みファイル（永続保存・履歴）
+  outputs/approvals/pending/    承認待ちファイル（実行ごとに再生成）
+  outputs/approvals/approved/   承認済みファイル（Claude Codeでの実装待ち）
+  outputs/approvals/rejected/   却下済みファイル（永続保存・履歴）
+  outputs/approvals/completed/  実装完了ファイル（Quest47。autonomous_flow.mdから除外される）
 
 CLI:
   python services/approval_service.py list
   python services/approval_service.py approve <id>
   python services/approval_service.py approve-all
   python services/approval_service.py reject <id> [理由]
+  python services/approval_service.py complete <id>
 """
 
 import re
@@ -19,17 +22,24 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# `python services/approval_service.py ...` のように直接実行された場合、
+# リポジトリルートが sys.path に無く `services.*` を解決できないため追加する。
+_REPO_ROOT = str(Path(__file__).parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 from services.approval_advisor_service import (
     analyze_item,
     build_advisor_frontmatter,
     parse_advisor_frontmatter,
 )
 
-BASE_DIR     = Path(__file__).parent.parent
-OUTPUTS      = BASE_DIR / "outputs"
-PENDING_DIR  = OUTPUTS / "approvals" / "pending"
-APPROVED_DIR = OUTPUTS / "approvals" / "approved"
-REJECTED_DIR = OUTPUTS / "approvals" / "rejected"
+BASE_DIR      = Path(__file__).parent.parent
+OUTPUTS       = BASE_DIR / "outputs"
+PENDING_DIR   = OUTPUTS / "approvals" / "pending"
+APPROVED_DIR  = OUTPUTS / "approvals" / "approved"
+REJECTED_DIR  = OUTPUTS / "approvals" / "rejected"
+COMPLETED_DIR = OUTPUTS / "approvals" / "completed"
 
 
 # ──────────────────────────────────────────
@@ -200,6 +210,7 @@ def generate_pending_approvals(outputs: Path) -> list[Path]:
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
     APPROVED_DIR.mkdir(parents=True, exist_ok=True)
     REJECTED_DIR.mkdir(parents=True, exist_ok=True)
+    COMPLETED_DIR.mkdir(parents=True, exist_ok=True)
 
     # pending をクリア（前回分）
     cleared = 0
@@ -291,6 +302,64 @@ def reject(approval_id: str, reason: str = "（理由なし）") -> bool:
     return True
 
 
+def _load_approved_file(approval_id: str) -> Path | None:
+    for suffix in ["", ".md"]:
+        p = APPROVED_DIR / f"{approval_id}{suffix}"
+        if p.exists():
+            return p
+    return None
+
+
+def _extract_github_url(text: str) -> str:
+    m = re.search(r"\*\*GitHub Issue:\*\*\s*\[([^\]]+)\]", text)
+    return m.group(1).strip() if m else ""
+
+
+def complete(approval_id: str) -> bool:
+    """
+    承認済み（approved/）の実装アイテムを completed/ に移動する。
+    Claude Codeでの実装が終わったIssueをここに移すことで、
+    autonomous_flow.md（実装準備完了リスト）から自動的に除外される。
+
+    GitHub Issue に紐づくアイテムの場合、Issueをクローズするための
+    コマンドを「Close候補」としてファイルに記録する（自動クローズはしない）。
+    """
+    src = _load_approved_file(approval_id)
+    if not src:
+        print(f"[実装完了] ❌ approved/ に見つかりません: {approval_id}")
+        return False
+
+    COMPLETED_DIR.mkdir(parents=True, exist_ok=True)
+
+    content = src.read_text(encoding="utf-8")
+    content = content.replace(
+        "status: approved",
+        f"status: completed\ncompleted_at: {_now()}",
+    )
+
+    github_url = _extract_github_url(content)
+    footer = f"\n\n> ✅ **実装完了** — {_now()}\n"
+    if github_url:
+        footer += (
+            f"\n> 🔒 **GitHub Issue Close候補：** [{github_url}]({github_url})\n"
+            f"> DAF OSは自動でIssueをクローズしません。必要であれば以下のいずれかで手動クローズしてください：\n\n"
+            f"```bash\n"
+            f"gh issue close {github_url.rstrip('/').split('/')[-1]} "
+            f"--repo {'/'.join(github_url.rstrip('/').split('/')[-4:-2])}\n"
+            f"```\n\n"
+            f"またはブラウザで {github_url} を開いて「Close issue」を押してください。\n"
+        )
+    content += footer
+
+    dst = COMPLETED_DIR / src.name
+    dst.write_text(content, encoding="utf-8")
+    src.unlink()
+    print(f"[実装完了] ✅ 実装完了にしました: {src.name} → completed/")
+    if github_url:
+        print(f"  → GitHub IssueのClose候補: {github_url}（自動クローズはしません）")
+    return True
+
+
 def approve_all() -> int:
     """pending のすべてのファイルを承認する。承認件数を返す。"""
     files = list(PENDING_DIR.glob("*.md"))
@@ -362,6 +431,33 @@ def get_rejected_count(outputs: Path) -> int:
     if not rejected.exists():
         return 0
     return len(list(rejected.glob("*.md")))
+
+
+def get_completed_count(outputs: Path) -> int:
+    completed = outputs / "approvals" / "completed"
+    if not completed.exists():
+        return 0
+    return len(list(completed.glob("*.md")))
+
+
+def get_completed_items(outputs: Path) -> list[dict]:
+    """completed ファイル一覧をメタデータ付きで返す。"""
+    completed = outputs / "approvals" / "completed"
+    if not completed.exists():
+        return []
+    items = []
+    for f in sorted(completed.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        id_m    = re.search(r"^id: (.+)$", text, re.MULTILINE)
+        title_m = re.search(r"^title: (.+)$", text, re.MULTILINE)
+        completed_at_m = re.search(r"^completed_at: (.+)$", text, re.MULTILINE)
+        items.append({
+            "id":           id_m.group(1).strip()    if id_m    else f.stem,
+            "title":        title_m.group(1).strip() if title_m else f.stem,
+            "completed_at": completed_at_m.group(1).strip() if completed_at_m else "",
+            "github_url":   _extract_github_url(text),
+        })
+    return items
 
 
 def get_pending_detail(approval_id: str, outputs: Path) -> dict | None:
@@ -439,12 +535,15 @@ def _cli():
     elif args[0] == "reject" and len(args) >= 2:
         reason = args[2] if len(args) >= 3 else "（理由なし）"
         reject(args[1], reason)
+    elif args[0] == "complete" and len(args) >= 2:
+        complete(args[1])
     else:
         print("使い方:")
         print("  python services/approval_service.py list")
         print("  python services/approval_service.py approve <id>")
         print("  python services/approval_service.py approve-all")
         print('  python services/approval_service.py reject <id> "理由"')
+        print("  python services/approval_service.py complete <id>")
 
 
 if __name__ == "__main__":

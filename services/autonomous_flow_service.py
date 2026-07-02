@@ -316,12 +316,14 @@ def get_autonomous_flow_summary(outputs: Path) -> dict | None:
         "count": len(items),
         "issues": [
             {
+                "approval_id": i["approval_id"],
                 "number": i["issue_number"],
                 "title": i["title"],
                 "assignee": i["assignee"],
                 "product": i["product"],
                 "work_dir": i["work_dir"],
                 "product_warning": i.get("product_warning", ""),
+                "github_url": i.get("github_url", ""),
             }
             for i in items
         ],

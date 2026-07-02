@@ -137,11 +137,12 @@ def parse_dashboard() -> dict:
 
     # 承認センター
     from services.approval_service import (
-        get_pending_items, get_approved_count, get_rejected_count,
+        get_pending_items, get_approved_count, get_rejected_count, get_completed_count,
     )
     pending_items   = get_pending_items(BASE_DIR / "outputs")
     approved_count  = get_approved_count(BASE_DIR / "outputs")
     rejected_count  = get_rejected_count(BASE_DIR / "outputs")
+    completed_count = get_completed_count(BASE_DIR / "outputs")
 
     # PRドラフト（v1.7）
     from services.pr_preparation_service import get_pr_draft_summary
@@ -180,6 +181,7 @@ def parse_dashboard() -> dict:
         "pending_approvals": pending_items,
         "approved_count": approved_count,
         "rejected_count": rejected_count,
+        "completed_count": completed_count,
         "pr_draft": pr_draft,
         "autonomous_flow": autonomous_flow,
         "products": products,
@@ -231,7 +233,7 @@ def api_approvals():
     try:
         from services.approval_service import (
             get_pending_items, get_approved_count,
-            get_rejected_count, get_pending_detail,
+            get_rejected_count, get_pending_detail, get_completed_count,
         )
         items = get_pending_items(OUTPUTS_DIR)
         # 各アイテムにプレビューを付加
@@ -244,6 +246,7 @@ def api_approvals():
             "pending": detailed,
             "approved_count": get_approved_count(OUTPUTS_DIR),
             "rejected_count": get_rejected_count(OUTPUTS_DIR),
+            "completed_count": get_completed_count(OUTPUTS_DIR),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -279,6 +282,26 @@ def api_reject():
 
         from services.approval_service import reject
         ok = reject(approval_id, reason)
+        return jsonify({"ok": ok, "id": approval_id})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/approvals/complete", methods=["POST"])
+def api_complete():
+    """
+    実装が完了した承認済みアイテムを completed/ に移動する（Quest47）。
+    GitHub Issue は自動クローズしない（Close候補として記録するのみ）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        raw_id = data.get("id", "")
+        approval_id = _safe_approval_id(raw_id)
+        if not approval_id:
+            return jsonify({"ok": False, "error": "無効なIDです"}), 400
+
+        from services.approval_service import complete
+        ok = complete(approval_id)
         return jsonify({"ok": ok, "id": approval_id})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

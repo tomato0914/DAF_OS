@@ -369,13 +369,14 @@ function renderProductsCard(products) {
 function renderAutonomousFlowCard(flow) {
   if (!flow) return '';
   const issueRows = (flow.issues || []).map(i => `
-    <li class="action-item">
+    <li class="action-item flow-issue-row">
       <span class="action-num">#${esc(i.number)}</span>
-      <span>
+      <span class="flow-issue-body">
         ${esc(i.title)}（担当: ${esc(i.assignee)}）
         <span class="flow-product-tag">📦 ${esc(i.product)} <code>${esc(i.work_dir)}</code></span>
         ${i.product_warning ? `<span class="flow-product-warn">${esc(i.product_warning)}</span>` : ''}
       </span>
+      <button class="btn btn-complete" onclick="completeImplementation('${esc(i.approval_id)}', this)">✅ 実装完了</button>
     </li>
   `).join('');
   return `
@@ -383,7 +384,7 @@ function renderAutonomousFlowCard(flow) {
       <div class="card-title">🤖 実装準備完了</div>
       <div class="flow-notice">
         承認済みの実装アイテム <strong>${Number(flow.count)}件</strong> について、
-        Claude Code 向けの実装指示書が生成されました。
+        Claude Code 向けの実装指示書が生成されました。実装が終わったら「✅ 実装完了」でこのリストから外してください。
       </div>
       <ul class="actions-list">${issueRows}</ul>
       <div class="pr-draft-notice">
@@ -392,6 +393,30 @@ function renderAutonomousFlowCard(flow) {
       </div>
     </div>
   `;
+}
+
+function completeImplementation(approvalId, btnEl) {
+  if (!approvalId) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 処理中...'; }
+
+  fetch('/api/approvals/complete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: approvalId}),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.ok) {
+      fetchDashboard();
+    } else {
+      alert('実装完了処理に失敗しました: ' + (res.error || ''));
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '✅ 実装完了'; }
+    }
+  })
+  .catch(e => {
+    alert('エラー: ' + e);
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = '✅ 実装完了'; }
+  });
 }
 
 function renderPrDraftCard(pr) {
@@ -490,9 +515,10 @@ function renderAdvisorBlock(advisor) {
 }
 
 function renderApprovals(data) {
-  const pending  = data.pending  || [];
-  const approved = data.approved_count || 0;
-  const rejected = data.rejected_count || 0;
+  const pending   = data.pending  || [];
+  const approved  = data.approved_count || 0;
+  const rejected  = data.rejected_count || 0;
+  const completed = data.completed_count || 0;
 
   // バッジ更新
   const badge = document.getElementById('pendingBadge');
@@ -512,6 +538,10 @@ function renderApprovals(data) {
       <div class="approval-stat">
         <span class="as-num muted">${rejected}</span>
         <span class="as-label">却下済み</span>
+      </div>
+      <div class="approval-stat">
+        <span class="as-num accent">${completed}</span>
+        <span class="as-label">実装完了</span>
       </div>
     </div>
   `;

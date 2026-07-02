@@ -175,6 +175,9 @@ body {
   padding-top: 1px;
 }
 
+.flow-issue-row { align-items: center; flex-wrap: wrap; }
+.flow-issue-body { flex: 1; min-width: 200px; }
+
 /* ─── Proposal ─── */
 .proposal-text {
   font-size: 0.9rem;
@@ -411,6 +414,8 @@ body {
 .btn-danger   { background: var(--danger);   color: #fff; }
 .btn-approve  { background: var(--success);  color: #0a2e26; font-size: 0.78rem; padding: 6px 14px; }
 .btn-reject   { background: var(--surface2); color: var(--danger); border: 1px solid var(--danger); font-size: 0.78rem; padding: 6px 14px; }
+.btn-complete { background: var(--accent2); color: #06281f; font-size: 0.78rem; padding: 6px 14px; white-space: nowrap; }
+.btn-complete:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .auto-refresh-btn { font-size: 0.78rem; padding: 6px 14px; }
 .auto-refresh-btn.is-off { color: var(--warn); }
@@ -469,9 +474,10 @@ body {
 
 .as-num   { font-size: 1.8rem; font-weight: 700; line-height: 1; }
 .as-label { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
-.as-num.warn  { color: var(--warn); }
-.as-num.ok    { color: var(--success); }
-.as-num.muted { color: var(--muted); }
+.as-num.warn   { color: var(--warn); }
+.as-num.ok     { color: var(--success); }
+.as-num.muted  { color: var(--muted); }
+.as-num.accent { color: var(--accent2); }
 
 .approval-empty {
   padding: 24px;
