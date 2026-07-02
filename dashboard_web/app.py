@@ -32,14 +32,25 @@ def _section(text: str, heading: str) -> str:
 
 
 def _table_rows(md_table: str) -> list[dict]:
-    """markdown テーブルを [{col: val, ...}] に変換する。"""
+    """
+    markdown テーブルを [{col: val, ...}] に変換する。
+    セクション末尾の "---"（区切り線）などテーブル行ではない行が
+    まぎれ込んだ場合は無視する（"|" で始まらない行、列数が
+    ヘッダーと一致しない行、値が空の行はスキップ）。
+    """
     lines = [l.strip() for l in md_table.strip().splitlines() if l.strip()]
     if len(lines) < 2:
         return []
     headers = [h.strip() for h in lines[0].strip("|").split("|")]
     rows = []
     for line in lines[2:]:          # skip separator
+        if not line.startswith("|"):
+            continue
         cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) != len(headers):
+            continue
+        if not any(cells):
+            continue
         rows.append(dict(zip(headers, cells)))
     return rows
 

@@ -6,11 +6,19 @@ from agents.nova import create_nova
 from agents.cosmos import create_cosmos
 
 
-def build_llm(api_key: str) -> LLM:
+def build_llm(api_key: str, max_tokens: int = 4096) -> LLM:
+    """
+    max_tokens を明示指定する。
+    未指定のままだと litellm が gpt-4o-mini の最大出力（16384）を既定値として使い、
+    OpenRouter側の利用上限エラーを引き起こすため、必ず指定する。
+      - 通常処理: 4096（デフォルト）
+      - 長文生成（最終提案書・Issue一括生成など）: 8000
+    """
     return LLM(
         model="openrouter/openai/gpt-4o-mini",
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
+        max_tokens=max_tokens,
     )
 
 
@@ -25,12 +33,14 @@ def run_launch_crew(
     cosmos_page_id: str | None = None,
     company_memory: str = "",
 ) -> dict[str, str]:
-    llm = build_llm(openrouter_api_key)
+    llm = build_llm(openrouter_api_key)  # 通常処理（4096）
+    llm_long = build_llm(openrouter_api_key, max_tokens=8000)  # 長文生成（最終提案書・Issue一括生成）
 
     # 会社メモリがある場合、全タスクの冒頭に付加するプレフィックスを作る
     _mem = f"{company_memory}\n\n" if company_memory else ""
 
-    orion = create_orion(llm, notion_api_key=notion_api_key, page_id=orion_page_id)
+    # Orion は最終提案書・Issue一括生成という長文タスクを担当するため長文用LLMを使う
+    orion = create_orion(llm_long, notion_api_key=notion_api_key, page_id=orion_page_id)
     atlas = create_atlas(llm, notion_api_key=notion_api_key, page_id=atlas_page_id)
     sirius = create_sirius(llm, notion_api_key=notion_api_key, page_id=sirius_page_id)
     nova = create_nova(llm, notion_api_key=notion_api_key, page_id=nova_page_id)

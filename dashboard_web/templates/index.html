@@ -99,7 +99,14 @@ function stripMarkdown(text) {
 
 function renderStatus(rows) {
   if (!rows || rows.length === 0) return '<p style="color:var(--muted);font-size:.85rem">データなし</p>';
-  return `<div class="status-grid">` + rows.map(r => {
+  // ラベルまたは値が欠けている（undefined/空）統計項目は表示しない
+  const valid = rows.filter(r => {
+    const label = r['項目'] || Object.values(r)[0];
+    const num   = Object.values(r)[1];
+    return label !== undefined && label !== '' && num !== undefined && num !== '';
+  });
+  if (valid.length === 0) return '<p style="color:var(--muted);font-size:.85rem">データなし</p>';
+  return `<div class="status-grid">` + valid.map(r => {
     const num   = Object.values(r)[1];
     const state = Object.values(r)[2] || '';
     return `<div class="stat-box">

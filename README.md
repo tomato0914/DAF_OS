@@ -10,10 +10,29 @@ v0.2 から **Notion連携**、v0.3 から **5人体制**、v0.4 から **成果
 # 1. 経営会議を実行してダッシュボードを生成
 ./run_daf.sh
 
-# 2. ブラウザで結果を確認
-python dashboard_web/app.py
-# → http://localhost:8000 を開く
+# 2. ブラウザでダッシュボードを開く（起動していなければ自動起動する）
+./open_dashboard.sh
 ```
+
+---
+
+## ダッシュボードをワンコマンドで開く（open_dashboard.sh）
+
+CEOが1コマンドでWebダッシュボードを開けるようにするスクリプトです。
+
+```bash
+./open_dashboard.sh
+```
+
+### 動作
+
+1. ポート8000で `dashboard_web/app.py` が既に起動しているか確認する
+2. 起動中ならそのままブラウザで `http://localhost:8000` を開く
+3. 起動していなければ `.venv` を有効化し、`dashboard_web/app.py` をバックグラウンドで起動する
+4. バックグラウンド起動時のログは `logs/dashboard_stdout.log` / `logs/dashboard_stderr.log` に保存される
+5. サーバー起動後、ブラウザで `http://localhost:8000` を開く
+
+`.venv` が無い場合はエラーメッセージとセットアップ手順を表示して終了します（`run_daf.sh` と同様の挙動）。既にサーバーが起動している場合は、二重起動せずそのままブラウザを開きます。
 
 ---
 
@@ -24,6 +43,8 @@ python dashboard_web/app.py
 ```bash
 python dashboard_web/app.py
 ```
+
+または `./open_dashboard.sh` を使うと、サーバー起動とブラウザを開く操作を1コマンドにまとめられます。
 
 ブラウザで `http://localhost:8000` を開いてください。
 
