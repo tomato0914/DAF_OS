@@ -171,6 +171,7 @@ def _parse_approved_item(path: Path, outputs: Path) -> dict | None:
         "product": product,
         "work_dir": work_dir,
         "product_warning": product_warning,
+        "raw_prompt": prompt_text,
     }
 
 
@@ -188,6 +189,11 @@ def get_approved_implementation_items(outputs: Path) -> list[dict]:
         if item:
             items.append(item)
     return items
+
+
+def get_approved_implementation_count(outputs: Path) -> int:
+    """Web UI 向け：承認済み実装アイテム件数のみを軽量に返す。"""
+    return len(get_approved_implementation_items(outputs))
 
 
 # ──────────────────────────────────────────

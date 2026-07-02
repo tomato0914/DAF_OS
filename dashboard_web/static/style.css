@@ -415,6 +415,40 @@ body {
 .auto-refresh-btn { font-size: 0.78rem; padding: 6px 14px; }
 .auto-refresh-btn.is-off { color: var(--warn); }
 
+.btn-launch {
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 22px;
+  font-size: 0.9rem;
+}
+.btn-launch:disabled {
+  background: var(--surface2);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ─── Launcher card ─── */
+.launcher-card { border-color: var(--accent); }
+
+.launcher-notice {
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.launcher-result {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+.launcher-result.ok    { color: var(--success); }
+.launcher-result.error { color: var(--danger); }
+
 /* ─── Approval center ─── */
 .approval-summary {
   display: flex;

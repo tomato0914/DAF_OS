@@ -214,10 +214,60 @@ function renderDashboard(data) {
     </div>` : ''}
     ${renderProductsCard(data.products)}
     ${renderProductIssueStatsCard(data.product_issue_stats)}
+    ${renderLauncherCard(data.approved_implementation_count)}
     ${renderAutonomousFlowCard(data.autonomous_flow)}
     ${renderPrDraftCard(data.pr_draft)}
   `;
   document.getElementById('tabDashboard').innerHTML = html;
+}
+
+function renderLauncherCard(count) {
+  const n = Number(count) || 0;
+  const disabled = n === 0 ? 'disabled' : '';
+  return `
+    <div class="card full launcher-card">
+      <div class="card-title">🚀 ワンクリック実装準備</div>
+      <div class="launcher-notice">
+        承認済みの実装アイテム <strong>${n}件</strong> から、Claude Code にそのまま貼り付けられる
+        実装プロンプト（<code>outputs/claude_code_prompt.md</code>）を生成します。
+        commit / push / Claude Codeの自動起動は行いません。
+      </div>
+      <button class="btn btn-launch" id="launchBtn" onclick="startImplementation()" ${disabled}>
+        🚀 実装開始
+      </button>
+      <div id="launcherResult" class="launcher-result"></div>
+    </div>
+  `;
+}
+
+function startImplementation() {
+  const btn = document.getElementById('launchBtn');
+  const resultEl = document.getElementById('launcherResult');
+  btn.disabled = true;
+  btn.textContent = '⏳ 準備中...';
+  resultEl.textContent = '';
+  resultEl.className = 'launcher-result';
+
+  fetch('/api/start_implementation', { method: 'POST' })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ data }) => {
+      if (data.ok) {
+        resultEl.className = 'launcher-result ok';
+        resultEl.textContent = `✅ ${data.message}` + (data.opened ? '（ファイルを開きました）' : '');
+        fetchDashboard();
+      } else {
+        resultEl.className = 'launcher-result error';
+        resultEl.textContent = `⚠️ ${data.message}`;
+      }
+    })
+    .catch(e => {
+      resultEl.className = 'launcher-result error';
+      resultEl.textContent = `⚠️ エラー: ${e}`;
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '🚀 実装開始';
+    });
 }
 
 function renderProductIssueStatsCard(stats) {

@@ -148,6 +148,10 @@ def parse_dashboard() -> dict:
     from services.dashboard_generator import get_product_issue_stats
     product_issue_stats = get_product_issue_stats(BASE_DIR / "outputs")
 
+    # ワンクリック実装準備（v2.3 Quest42）
+    from services.autonomous_flow_service import get_approved_implementation_count
+    approved_implementation_count = get_approved_implementation_count(BASE_DIR / "outputs")
+
     return {
         "updated": updated,
         "status": status_rows,
@@ -165,6 +169,7 @@ def parse_dashboard() -> dict:
         "autonomous_flow": autonomous_flow,
         "products": products,
         "product_issue_stats": product_issue_stats,
+        "approved_implementation_count": approved_implementation_count,
         "raw": text,
     }
 
@@ -307,6 +312,24 @@ def api_products():
         return jsonify({"products": get_product_summary()})
     except Exception as e:
         return jsonify({"products": [], "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# ワンクリック実装準備 API（v2.3 Quest42）
+# ──────────────────────────────────────────
+
+@app.route("/api/start_implementation", methods=["POST"])
+def api_start_implementation():
+    """
+    承認済み実装アイテムから autonomous_flow.md / claude_code_prompt.md を生成する。
+    git commit / push / Claude Code起動は一切行わない。
+    """
+    try:
+        from services.implementation_launcher_service import start_implementation
+        result = start_implementation(OUTPUTS_DIR)
+        return jsonify(result), (200 if result["ok"] else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "message": str(e)}), 500
 
 
 if __name__ == "__main__":
