@@ -24,6 +24,30 @@ def _extract_actions(dashboard_text: str) -> list[str]:
     return actions[:2]
 
 
+def _extract_ceo_brief_actions(outputs: Path, limit: int = 3) -> list[str]:
+    """
+    CEOデイリーブリーフ（v2.4）の「📋 今日やること」を通知用に抽出する。
+    ceo_brief.md が無い・壊れている場合は空リストを返し、呼び出し側で従来のフォールバックへ委ねる。
+    """
+    try:
+        path = outputs / "ceo_brief.md"
+        if not path.exists():
+            return []
+        text = path.read_text(encoding="utf-8")
+        m = re.search(r"## 📋 今日やること（3つまで）\s*\n([\s\S]*?)(?=\n## |\Z)", text)
+        if not m:
+            return []
+        actions = []
+        for line in m.group(1).splitlines():
+            line = line.strip()
+            if re.match(r"\d+\.", line):
+                clean = re.sub(r"^\d+\.\s*", "", line).replace("`", "").strip()
+                actions.append(clean)
+        return actions[:limit]
+    except Exception:
+        return []
+
+
 def _osa_escape(text: str) -> str:
     """AppleScript 文字列内でのエスケープ（ダブルクォート・バックスラッシュ）。"""
     return text.replace("\\", "\\\\").replace('"', '\\"')
@@ -39,15 +63,15 @@ def notify(
     """
     dashboard_path = outputs / "dashboard.md"
 
-    # 次のアクションを取得
-    actions: list[str] = []
-    if dashboard_path.exists():
+    # 今日やることTOP3（CEOデイリーブリーフ優先。無ければ従来のダッシュボード抽出にフォールバック）
+    actions: list[str] = _extract_ceo_brief_actions(outputs)
+    if not actions and dashboard_path.exists():
         actions = _extract_actions(dashboard_path.read_text(encoding="utf-8"))
 
     # 通知本文を組み立て
     lines = [f"Issue {issue_count}件を生成しました。"]
     if actions:
-        lines.append("次のアクション:")
+        lines.append("今日やることTOP3:" if len(actions) > 1 else "今日やること:")
         for a in actions:
             lines.append(f"• {a}")
     lines.append(f"📋 {dashboard_path}")

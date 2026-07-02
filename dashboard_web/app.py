@@ -152,6 +152,10 @@ def parse_dashboard() -> dict:
     from services.autonomous_flow_service import get_approved_implementation_count
     approved_implementation_count = get_approved_implementation_count(BASE_DIR / "outputs")
 
+    # CEOデイリーブリーフ（v2.4 Quest43）
+    from services.ceo_brief_service import get_ceo_brief_summary
+    ceo_brief = get_ceo_brief_summary(BASE_DIR / "outputs")
+
     return {
         "updated": updated,
         "status": status_rows,
@@ -170,6 +174,7 @@ def parse_dashboard() -> dict:
         "products": products,
         "product_issue_stats": product_issue_stats,
         "approved_implementation_count": approved_implementation_count,
+        "ceo_brief": ceo_brief,
         "raw": text,
     }
 
@@ -330,6 +335,22 @@ def api_start_implementation():
         return jsonify(result), (200 if result["ok"] else 400)
     except Exception as e:
         return jsonify({"ok": False, "message": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# CEOデイリーブリーフ API（v2.4 Quest43・読み取り専用）
+# ──────────────────────────────────────────
+
+@app.route("/api/ceo_brief")
+def api_ceo_brief():
+    """ceo_brief.md の内容を返す（存在しない場合は exists: false）。"""
+    try:
+        path = OUTPUTS_DIR / "ceo_brief.md"
+        if not path.exists():
+            return jsonify({"exists": False})
+        return jsonify({"exists": True, "content": path.read_text(encoding="utf-8")})
+    except Exception as e:
+        return jsonify({"exists": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":

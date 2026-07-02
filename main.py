@@ -59,6 +59,7 @@ def clean_outputs() -> None:
         OUTPUTS / "memory_update_suggestions.md",
         OUTPUTS / "pr_draft.md",
         OUTPUTS / "autonomous_flow.md",
+        OUTPUTS / "ceo_brief.md",
     ]
     deleted = [f for f in files_to_delete if f.exists() and (f.unlink() or True)]
     if deleted:
@@ -94,6 +95,7 @@ def main():
     from services.pr_preparation_service import generate_pr_draft
     from services.autonomous_flow_service import run_autonomous_flow_generation
     from services.product_registry_service import load_products, print_product_status
+    from services.ceo_brief_service import try_generate_ceo_brief
 
     # 会社メモリ読み込み（起動時に自動実行）
     company_memory = load_company_memory()
@@ -225,6 +227,9 @@ def main():
     # 半自律実装フロー（承認済みの実装アイテムのみを対象に生成）
     print("\n半自律実装フローを確認中...")
     run_autonomous_flow_generation(OUTPUTS)
+
+    # CEOデイリーブリーフ（承認・実装キュー・プロダクト状況が出揃った後に生成）
+    try_generate_ceo_brief(OUTPUTS)
 
     # Notion 議事録保存（dashboard.md 生成後に実行）
     notion_log_db = os.getenv("NOTION_LOG_DATABASE_ID") or None

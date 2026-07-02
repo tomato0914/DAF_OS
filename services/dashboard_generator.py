@@ -256,11 +256,30 @@ def generate_dashboard(
     else:
         next_actions = "1. `python main.py` を実行して会議を開始してください"
 
+    ceo_brief_text = _read(outputs / "ceo_brief.md")
+    if ceo_brief_text:
+        body_m = re.search(r"^# ☀️ CEO Daily Brief\s*\n([\s\S]*)", ceo_brief_text)
+        ceo_brief_body = body_m.group(1).strip() if body_m else ceo_brief_text.strip()
+        # dashboard.md内では ## セクションの子要素になるよう見出しレベルを1段下げる
+        ceo_brief_body = re.sub(r"^## ", "### ", ceo_brief_body, flags=re.MULTILINE)
+        ceo_brief_section = (
+            "\n## ☀️ CEO Daily Brief\n\n"
+            + ceo_brief_body
+            + "\n"
+        )
+    else:
+        ceo_brief_section = (
+            "\n## ☀️ CEO Daily Brief\n\n"
+            "未生成 — 次回 `python main.py` 実行後に `outputs/ceo_brief.md` から反映されます。\n"
+        )
+
     lines = [
         f"# DAF OS ダッシュボード",
         f"",
         f"> 最終更新: {now}",
         f"",
+        f"---",
+        ceo_brief_section,
         f"---",
         f"",
         f"## 1. 今日の状況",

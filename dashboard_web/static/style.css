@@ -704,6 +704,59 @@ body {
 .product-issue-status { font-size: 0.8rem; }
 .product-issue-row.product-row-warn { border-left-color: var(--warn); }
 
+/* ─── CEO Daily Brief card ─── */
+.ceo-brief-card {
+  border-color: var(--accent2);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+}
+
+.ceo-brief-updated {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.ceo-brief-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ceo-brief-block {
+  padding: 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+}
+
+.ceo-brief-block-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent2);
+  margin-bottom: 6px;
+}
+
+.ceo-brief-text {
+  font-size: 0.83rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.ceo-brief-message {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-left: 3px solid var(--success);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.ceo-brief-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 /* ─── Autonomous flow card ─── */
 .flow-card { border-color: var(--accent); }
 
