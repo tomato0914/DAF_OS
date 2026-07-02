@@ -58,15 +58,45 @@ def _build_claude_code_prompt(items: list[dict]) -> str:
     return header + "\n".join(blocks)
 
 
+def _try_open_with_app(path: Path, app_name: str) -> tuple[bool, str]:
+    """指定アプリでファイルを開く。(成功したか, エラーメッセージ) を返す。"""
+    try:
+        result = subprocess.run(
+            ["open", "-a", app_name, str(path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return True, ""
+        return False, result.stderr.strip()
+    except Exception as e:
+        return False, str(e)
+
+
 def _try_open_file(path: Path) -> bool:
     """
-    生成したファイルをローカルのデフォルトアプリで開く。
-    Claude Code自体は起動しない（Markdownビューア等が開くだけ）。
-    Mac以外・失敗時は静かにスキップする。
+    生成したファイルをローカルのアプリで開く。
+    Macでは Visual Studio Code → TextEdit → 通常の open の順にフォールバックする。
+    Claude Code自体は起動しない（エディタ／ビューアが開くだけ）。
+    Mac以外・全て失敗時は静かにスキップする。
     """
     if platform.system() != "Darwin":
         print("[実装準備] Mac以外の環境のため自動オープンをスキップします")
         return False
+
+    ok, err = _try_open_with_app(path, "Visual Studio Code")
+    if ok:
+        print(f"[実装準備] VS Codeでファイルを開きました: {path}")
+        return True
+    print(f"[実装準備] VS Codeで開けませんでした（{err}）→ TextEditにフォールバック")
+
+    ok, err = _try_open_with_app(path, "TextEdit")
+    if ok:
+        print(f"[実装準備] TextEditでファイルを開きました: {path}")
+        return True
+    print(f"[実装準備] TextEditで開けませんでした（{err}）→ 通常のopenにフォールバック")
+
     try:
         result = subprocess.run(
             ["open", str(path)],
