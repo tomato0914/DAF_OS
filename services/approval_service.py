@@ -132,7 +132,7 @@ def _parse_implementation_queue(outputs: Path) -> list[dict]:
         r"## Issue #(\d+)\s*\n\n"
         r"\*\*タイトル：\*\* (.+?)\n"
         r"\*\*URL：\*\* (\S+)\n"
-        r".+?\n\n"
+        r"([\s\S]*?)\n\n"
         r"### 実装目的\s*\n\n([\s\S]*?)"
         r"### Claude Code への推奨プロンプト\s*\n\n```\s*\n([\s\S]*?)```",
         text,
@@ -140,12 +140,22 @@ def _parse_implementation_queue(outputs: Path) -> list[dict]:
         num     = m.group(1)
         title   = m.group(2).strip()
         url     = m.group(3).strip()
-        purpose = m.group(4).strip()
-        prompt  = m.group(5).strip()
+        meta_block = m.group(4)
+        purpose = m.group(5).strip()
+        prompt  = m.group(6).strip()
 
+        product_m = re.search(r"\*\*product：\*\*\s*(\S+)　\*\*path：\*\*\s*(\S+)", meta_block)
+        product  = product_m.group(1).strip() if product_m else ""
+        work_dir = product_m.group(2).strip() if product_m else ""
+
+        product_line = (
+            f"**対象プロダクト:** {product}　**作業ディレクトリ:** {work_dir}\n\n"
+            if product else ""
+        )
         body = (
             f"# ⚡ 実装承認: Issue #{num} — {title}\n\n"
             f"**GitHub Issue:** [{url}]({url})\n\n"
+            f"{product_line}"
             f"## 実装目的\n\n{purpose}\n\n"
             f"## Claude Code への推奨プロンプト\n\n"
             f"承認後、以下のプロンプトを Claude Code に貼り付けて実装してください：\n\n"

@@ -155,6 +155,9 @@ def run_launch_crew(
             "（チェックボックス形式）\n\n"
             "## 関連成果物\n"
             "（report.md / appstore_description.md / social_posts.md / launch_checklist.md のいずれか）\n\n"
+            "## 対象プロダクト\n"
+            "（このIssueが対象とするプロダクト名。もふログアプリ本体に関する内容なら mofulog、"
+            "DAF OS自体の運用・ツールに関する内容なら DAF_OS。不明な場合は DAF_OS）\n\n"
             "---\n\n"
             "# Issue #002\n\n"
             "...\n\n"
@@ -162,7 +165,7 @@ def run_launch_crew(
         ),
         expected_output=(
             "3〜5個のIssueをMarkdown形式で出力。各Issueは「---」で区切られ、"
-            "全項目（タイトル・背景・要件・優先度・想定担当・完了条件・関連成果物）が埋められている。"
+            "全項目（タイトル・背景・要件・優先度・想定担当・完了条件・関連成果物・対象プロダクト）が埋められている。"
         ),
         agent=orion,
         context=[task_sirius, task_nova, task_cosmos, task_atlas, task_orion],

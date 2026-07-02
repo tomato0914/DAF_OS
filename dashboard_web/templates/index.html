@@ -14,6 +14,7 @@
     <div class="subtitle">Digital Asset Factory — CEO View</div>
   </div>
   <div class="header-right">
+    <button class="btn btn-ghost auto-refresh-btn" id="autoRefreshBtn" onclick="toggleAutoRefresh()">🔄 自動更新: ON</button>
     <span class="status-dot" id="statusDot"></span>
     <span class="updated-time" id="updatedTime">読み込み中...</span>
   </div>
@@ -211,17 +212,73 @@ function renderDashboard(data) {
         <span class="memory-hint">承認センタータブまたは outputs/memory_update_suggestions.md を確認してください。</span>
       </div>
     </div>` : ''}
+    ${renderProductsCard(data.products)}
+    ${renderProductIssueStatsCard(data.product_issue_stats)}
     ${renderAutonomousFlowCard(data.autonomous_flow)}
     ${renderPrDraftCard(data.pr_draft)}
   `;
   document.getElementById('tabDashboard').innerHTML = html;
 }
 
+function renderProductIssueStatsCard(stats) {
+  if (!stats || stats.length === 0) return '';
+  const rows = stats.map(s => {
+    let mark = '✅';
+    let markCls = '';
+    if (!s.registered) { mark = '⚠️ 未登録'; markCls = 'product-row-warn'; }
+    else if (!s.path_exists) { mark = '⚠️ パスなし'; markCls = 'product-row-warn'; }
+    return `
+      <div class="product-issue-row ${markCls}">
+        <span class="product-issue-name">📦 ${esc(s.product)}</span>
+        <span class="product-issue-counts">Issue: ${Number(s.issue_count)} / キュー内: ${Number(s.queued_count)}</span>
+        <span class="product-issue-status">${mark}</span>
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="card full">
+      <div class="card-title">📦 プロダクト別Issue状況</div>
+      <div class="products-list">${rows}</div>
+    </div>
+  `;
+}
+
+function renderProductsCard(products) {
+  if (!products || products.length === 0) return '';
+  const rows = products.map(p => `
+    <div class="product-row ${p.path_exists ? '' : 'product-row-warn'}">
+      <div class="product-row-head">
+        <span class="product-name">${esc(p.name)}</span>
+        <span class="product-status">${esc(p.status)}</span>
+      </div>
+      <div class="product-meta">
+        <span class="product-type">${esc(p.type)}</span>
+        <span class="product-path">${p.path_exists ? '✅' : '⚠️'} <code>${esc(p.path)}</code></span>
+      </div>
+      <div class="product-desc">${esc(p.description)}</div>
+      ${!p.path_exists ? '<div class="product-warn-notice">⚠️ 指定されたパスが見つかりません。products/*.md の path を確認してください。</div>' : ''}
+    </div>
+  `).join('');
+  return `
+    <div class="card full products-card">
+      <div class="card-title">🏢 管理中プロダクト</div>
+      <div class="products-list">${rows}</div>
+    </div>
+  `;
+}
+
 function renderAutonomousFlowCard(flow) {
   if (!flow) return '';
-  const issueRows = (flow.issues || []).map(i =>
-    `<li class="action-item"><span class="action-num">#${esc(i.number)}</span><span>${esc(i.title)}（担当: ${esc(i.assignee)}）</span></li>`
-  ).join('');
+  const issueRows = (flow.issues || []).map(i => `
+    <li class="action-item">
+      <span class="action-num">#${esc(i.number)}</span>
+      <span>
+        ${esc(i.title)}（担当: ${esc(i.assignee)}）
+        <span class="flow-product-tag">📦 ${esc(i.product)} <code>${esc(i.work_dir)}</code></span>
+        ${i.product_warning ? `<span class="flow-product-warn">${esc(i.product_warning)}</span>` : ''}
+      </span>
+    </li>
+  `).join('');
   return `
     <div class="card full flow-card">
       <div class="card-title">🤖 実装準備完了</div>
@@ -365,7 +422,7 @@ function renderApprovals(data) {
             </div>
           </div>
           <div class="ac-title">${esc(item.title)}</div>
-          <details class="ac-preview">
+          <details class="ac-preview" data-approval-id="${esc(item.id)}">
             <summary>内容を確認</summary>
             <pre class="ac-pre">${preview}</pre>
           </details>
@@ -378,10 +435,30 @@ function renderApprovals(data) {
   document.getElementById('approvalContent').innerHTML = html;
 }
 
+// 開いている <details data-approval-id> の id 一覧を返す（再描画前に呼ぶ）
+function _getOpenApprovalDetails() {
+  return Array.from(document.querySelectorAll('#approvalContent details[open]'))
+    .map(el => el.dataset.approvalId)
+    .filter(Boolean);
+}
+
+// 再描画後、以前開いていた id の <details> を再度開く
+function _restoreOpenApprovalDetails(openIds) {
+  if (!openIds || openIds.length === 0) return;
+  openIds.forEach(id => {
+    const el = document.querySelector(`#approvalContent details[data-approval-id="${CSS.escape(id)}"]`);
+    if (el) el.open = true;
+  });
+}
+
 function fetchApprovals() {
+  const openIds = _getOpenApprovalDetails();
   fetch('/api/approvals')
     .then(r => r.json())
-    .then(renderApprovals)
+    .then(data => {
+      renderApprovals(data);
+      _restoreOpenApprovalDetails(openIds);
+    })
     .catch(e => {
       document.getElementById('approvalContent').innerHTML =
         `<div class="error-box">⚠️ 承認データの取得に失敗しました: ${esc(String(e))}</div>`;
@@ -389,8 +466,20 @@ function fetchApprovals() {
 }
 
 // ────────────────────────────────
-// ポーリング（5秒ごと）
+// 自動更新（デフォルト30秒ごと。ON/OFF切り替え可能）
 // ────────────────────────────────
+
+let autoRefreshEnabled = true;
+const AUTO_REFRESH_INTERVAL_MS = 30000;
+let _dashboardTimer = null;
+let _approvalsTimer = null;
+
+function toggleAutoRefresh() {
+  autoRefreshEnabled = !autoRefreshEnabled;
+  const btn = document.getElementById('autoRefreshBtn');
+  btn.textContent = autoRefreshEnabled ? '🔄 自動更新: ON' : '⏸ 自動更新: OFF';
+  btn.classList.toggle('is-off', !autoRefreshEnabled);
+}
 
 function fetchDashboard() {
   fetch('/api/data')
@@ -416,8 +505,8 @@ document.getElementById('rejectModal').addEventListener('click', e => {
 });
 
 fetchDashboard();
-setInterval(fetchDashboard, 5000);
-setInterval(() => { if (currentTab === 'approvals') fetchApprovals(); }, 5000);
+_dashboardTimer = setInterval(() => { if (autoRefreshEnabled) fetchDashboard(); }, AUTO_REFRESH_INTERVAL_MS);
+_approvalsTimer = setInterval(() => { if (autoRefreshEnabled && currentTab === 'approvals') fetchApprovals(); }, AUTO_REFRESH_INTERVAL_MS);
 </script>
 </body>
 </html>

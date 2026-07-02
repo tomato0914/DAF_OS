@@ -1,8 +1,8 @@
-# DAF OS v2.0 / v1.7
+# DAF OS v2.2 / v1.7
 
 Digital Asset Factory の最小プロトタイプ。  
 CrewAI を使って5人のAI社員が経営会議を行い、成果物・Issue・Claude Task指示書・GitHub Issues登録を自動化する。  
-v0.2 から **Notion連携**、v0.3 から **5人体制**、v0.4 から **成果物自動生成**、v0.5a から **Issue自動生成**、v0.5b から **Claude Task生成**、v0.6 から **GitHub Issues自動登録**、v0.6.1 から **クリーンアップ**、v0.7 から **ダッシュボード**、v0.8 から **ワンコマンド起動**、v0.9 から **launchd自動スケジュール**、v1.0 から **Webダッシュボード**、v1.1 から **Notion議事録自動保存**、v1.2 から **Mac通知**、v1.3 から **会社メモリ（価値観・CEO好み・学び）**、v1.4 から **メモリ見直し提案**、v1.5 から **CEO承認センター（CLI）**、v1.6 から **Web承認センター**、v1.7 から **PR作成準備の自動生成**、v2.0 から **Claude Code 実装キュー自動生成**に対応。
+v0.2 から **Notion連携**、v0.3 から **5人体制**、v0.4 から **成果物自動生成**、v0.5a から **Issue自動生成**、v0.5b から **Claude Task生成**、v0.6 から **GitHub Issues自動登録**、v0.6.1 から **クリーンアップ**、v0.7 から **ダッシュボード**、v0.8 から **ワンコマンド起動**、v0.9 から **launchd自動スケジュール**、v1.0 から **Webダッシュボード**、v1.1 から **Notion議事録自動保存**、v1.2 から **Mac通知**、v1.3 から **会社メモリ（価値観・CEO好み・学び）**、v1.4 から **メモリ見直し提案**、v1.5 から **CEO承認センター（CLI）**、v1.6 から **Web承認センター**、v1.7 から **PR作成準備の自動生成**、v2.0 から **Claude Code 実装キュー自動生成 / 半自律実装フロー**、v2.1 から **マルチプロダクト対応**、v2.2 から **プロダクト別Issue管理**に対応。
 
 ## クイックスタート
 
@@ -37,6 +37,103 @@ python dashboard_web/app.py
 
 - スマートフォンでもそのまま閲覧可能（レスポンシブ対応）
 - `dashboard.md` が更新されると5秒以内に自動反映
+
+---
+
+## プロダクト別Issue管理（v2.2 Quest41）
+
+各Issueがどのプロダクト向けかを明示し、GitHub登録・実装キュー・半自律実装フローの全段階で追跡できるようにする機能です。
+
+### Issueへのproduct指定
+
+`outputs/issues/*.md` に `## 対象プロダクト` セクションを追加すると、そのIssueの対象プロダクトを指定できます。
+
+```markdown
+## 対象プロダクト
+mofulog
+```
+
+指定がない場合は自動的に `DAF_OS`（デフォルト）として扱われます。CrewAIが生成する新規Issueにも、この項目が自動的に含まれるようになりました。
+
+### GitHub登録時のタイトル
+
+GitHub Issue登録時、タイトルの先頭に `[product]` が自動で付与されます。
+
+```
+[mofulog] ユーザー同意の取得メカニズム実装
+[DAF_OS] ダッシュボードの表示崩れ修正
+```
+
+`products/*.md` に未登録のproductが指定された場合は、登録は継続しつつ起動ログに警告を表示します。
+
+### 実装キュー・半自律実装フローへの反映
+
+- `outputs/implementation_queue.md` の各Issueに `product` / `path` が出力されます。
+- `outputs/autonomous_flow.md` の各Issueに「対象プロダクト」「作業ディレクトリ」が追加され、Claude Codeがどのリポジトリを編集すべきか判断できます。
+
+### ダッシュボードでの確認
+
+- `outputs/dashboard.md` の「📦 プロダクト別Issue状況」セクション
+- Webダッシュボードの「📦 プロダクト別Issue状況」カード（プロダクトごとのIssue数・実装キュー内件数・登録状態）
+
+### 安全設計
+
+- **存在しないproduct**（`products/*.md` に未登録）は警告表示のみで処理は止めません。
+- **pathが存在しないproduct**のIssueは実装キューへ追加しません（`⚠️ プロダクト「X」のpathが存在しません → 実装キューから除外`とログ表示）。
+- GitHub Token は表示しません。
+
+### 完了条件
+
+- Issueファイル・GitHub Issueタイトル・実装キュー・半自律実装フローのすべてで対象プロダクトが分かる
+- Claude Codeは `autonomous_flow.md` の「作業ディレクトリ」を見るだけで編集すべきリポジトリを判断できる
+- `products/*.md` を追加するだけで3つ以上のプロダクトに拡張可能（コード変更不要）
+
+---
+
+## マルチプロダクト対応（v2.1 Quest40）
+
+DAFが複数のプロダクト（アプリ・サービス）を横断的に管理できるようにする機能です。`products/*.md` を1ファイル追加するだけで、新しいプロダクトをDAFの管理対象に加えられます。
+
+### プロダクトの追加方法
+
+`products/` フォルダに Markdown ファイルを1つ作成するだけです。
+
+```markdown
+---
+name: プロダクト名
+path: 相対パス（DAF_OSディレクトリからの相対パス、または絶対パス）
+type: mobile-app / web-app / internal-tool など自由記述
+description: プロダクトの概要
+repository: GitHubリポジトリURL
+status: active / planning / paused / archived など自由記述
+---
+```
+
+例：[products/daf_os.md](products/daf_os.md)（DAF_OS自身も1プロダクトとして登録済み）、[products/mofulog.md](products/mofulog.md)
+
+### 動作仕様
+
+| 状況 | 動作 |
+|------|------|
+| `products/` が空・存在しない | スキップ（エラーなし） |
+| `path` に指定したパスが存在しない | ⚠️ 警告表示（起動ログ・ダッシュボード両方） |
+| `products/*.md` を追加 | 次回 `python main.py` 実行時に自動反映 |
+
+### 確認できる場所
+
+- 起動ログ：`python main.py` 実行時に `[Products]` として一覧・警告が出力される
+- `outputs/dashboard.md` の「🏢 管理中プロダクト」セクション
+- Webダッシュボード（`http://localhost:8000`）の「🏢 管理中プロダクト」カード
+
+### 今後の連携予定
+
+[半自律実装フロー（v2.0 Phase2）](#半自律実装フローv20-phase2)がプロダクトごとに実装対象を切り替えられるよう、`services/product_registry_service.py` の `load_products()` が返す構造（`name` / `path` / `type` / `status` など）をそのまま利用できる設計にしています。
+
+### 安全設計
+
+- `.env` は読み取りません。
+- GitHub Token は表示しません（`repository` はURL文字列としてのみ保持・表示します）。
+- DAF_OS自身も他プロダクトと同じ形式（`products/daf_os.md`）で管理されます。
 
 ---
 

@@ -6,10 +6,24 @@ GitHub 未設定時は安全にスキップする。
 """
 
 import json
+import re
 import urllib.request
 import urllib.error
 from datetime import datetime
 from pathlib import Path
+
+from services.product_registry_service import DEFAULT_PRODUCT, get_product_by_name
+
+
+def _split_product_prefix(title: str) -> tuple[str, str]:
+    """
+    '[product] タイトル' 形式から product とタイトル本体を分離する。
+    プレフィックスがない場合は DEFAULT_PRODUCT を返す（後方互換）。
+    """
+    m = re.match(r"^\[([^\]]+)\]\s*(.+)$", title.strip())
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return DEFAULT_PRODUCT, title.strip()
 
 
 # ──────────────────────────────────────────
@@ -128,6 +142,7 @@ def _build_queue_md(
             f"**タイトル：** {title}",
             f"**URL：** {url}",
             f"**優先度：** {priority_label}　**担当エージェント：** {agent_label}",
+            f"**product：** {issue['product']}　**path：** {issue['work_dir']}",
             "",
             "### 実装目的",
             "",
@@ -173,12 +188,33 @@ def generate_implementation_queue(
         print(f"  [警告] {e} → スキップ")
         return []
 
-    # 優先度順でソートして上位 limit 件
+    # 優先度順でソート
     issues.sort(key=_priority_rank)
-    top = issues[:limit]
+
+    # product / path を解決し、無効なものは実装キューから除外する
+    # （安全要件：存在しないproductは警告、pathが存在しない場合はキューへ入れない）
+    top: list[dict] = []
+    for issue in issues:
+        if len(top) >= limit:
+            break
+        product, display_title = _split_product_prefix(issue["title"])
+        product_entry = get_product_by_name(product)
+
+        if product_entry is None:
+            print(f"  [警告] #{issue['number']} 未登録のプロダクトです: {product} → 実装キューから除外")
+            continue
+        if not product_entry["path_exists"]:
+            print(f"  [警告] #{issue['number']} プロダクト「{product}」のpathが存在しません"
+                  f"（{product_entry['path']}） → 実装キューから除外")
+            continue
+
+        issue["product"] = product
+        issue["work_dir"] = product_entry["path"]
+        issue["title"] = display_title  # 表示用にプレフィックスを外す
+        top.append(issue)
 
     if not top:
-        print("  [実装キュー] Open Issue がありません → スキップ")
+        print("  [実装キュー] 実装キューに追加できるIssueがありません → スキップ")
         return []
 
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")

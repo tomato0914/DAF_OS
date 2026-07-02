@@ -58,6 +58,50 @@ App Store / Google Play の審査要件を満たす表示フローを設計す�
 | アカウント削除画面 | データ削除に関するポリシーへのリンク |
 | App Store / Google Playのストアページ | プライバシーポリシーURL |
 
+公開URL（確定済み）：`https://tomato0914.github.io/DAF_OS/privacy_policy`
+
+### 実装スニペット（アプリ実装者向け・そのまま貼り付け可）
+
+もふログアプリ側のリポジトリで、設定画面に以下のいずれかを実装してください。
+
+**SwiftUI（iOS）**
+
+```swift
+Section("法的情報") {
+    Link("プライバシーポリシー", destination: URL(string: "https://tomato0914.github.io/DAF_OS/privacy_policy")!)
+    Link("利用規約", destination: URL(string: "https://tomato0914.github.io/DAF_OS/terms_of_service")!)
+}
+```
+
+**React Native**
+
+```jsx
+<SettingsSection title="法的情報">
+  <SettingsRow
+    label="プライバシーポリシー"
+    onPress={() => Linking.openURL('https://tomato0914.github.io/DAF_OS/privacy_policy')}
+  />
+  <SettingsRow
+    label="利用規約"
+    onPress={() => Linking.openURL('https://tomato0914.github.io/DAF_OS/terms_of_service')}
+  />
+</SettingsSection>
+```
+
+**Android（Jetpack Compose）**
+
+```kotlin
+Preference(
+    title = "プライバシーポリシー",
+    onClick = { uriHandler.openUri("https://tomato0914.github.io/DAF_OS/privacy_policy") }
+)
+```
+
+配置基準：
+- 設定画面のトップレベル、またはヘルプ/アプリ情報タブの中に「法的情報」セクションとして独立させる
+- 外部ブラウザ（`Link` / `Linking.openURL` 等）で開く。アプリ内WebViewは任意（本ガイド4章の「両方（推奨）」構成に準拠）
+- 既存の設定項目には手を加えず、セクションを1つ追加するだけに留める（既存UIを壊さないため）
+
 ---
 
 ## 3. ポリシー更新時の通知フロー
@@ -125,7 +169,8 @@ App Storeの審査には以下が必要です。
 - [x] ユーザーへの更新通知 → `docs/update_notice.md`
 - [x] 公開URL確定 → `https://tomato0914.github.io/DAF_OS/privacy_policy`
 - [x] お問い合わせ先確定 → corinzzz7@gmail.com
-- [ ] アプリ内同意画面の実装（Atlas担当・次フェーズ）
+- [x] アプリ内「法的情報」導線の実装スニペット作成（本ドキュメント2章） — もふログアプリのリポジトリ作成後、担当者が貼り付けるだけで実装可能
+- [ ] アプリ内同意画面の実装（Atlas担当・次フェーズ。もふログアプリのコードベースが必要）
 
 ---
 

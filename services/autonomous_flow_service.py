@@ -19,6 +19,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from services.product_registry_service import DEFAULT_PRODUCT, get_product_by_name
+
 # 担当者ごとの編集可能ファイル・禁止ファイル（claude_task_generator.py と同等の方針）
 _ASSIGNEE_RULES: dict[str, dict[str, list[str]]] = {
     "Sirius": {
@@ -137,6 +139,23 @@ def _parse_approved_item(path: Path, outputs: Path) -> dict | None:
     artifact = meta.get("artifact", "")
     may_edit, must_not_touch = _build_file_rules(assignee, artifact)
 
+    # 対象プロダクト / 作業ディレクトリ（implementation_queue.md 経由で埋め込まれる）
+    # 旧フォーマットの承認済みファイル（product情報なし）は DEFAULT_PRODUCT にフォールバック
+    product_m = re.search(r"\*\*対象プロダクト:\*\*\s*(\S+)　\*\*作業ディレクトリ:\*\*\s*(\S+)", text)
+    if product_m:
+        product = product_m.group(1).strip()
+        work_dir = product_m.group(2).strip()
+    else:
+        product = DEFAULT_PRODUCT
+        work_dir = "."
+
+    product_entry = get_product_by_name(product)
+    product_warning = ""
+    if product_entry is None:
+        product_warning = f"⚠️ プロダクト「{product}」が products/*.md に登録されていません。"
+    elif not product_entry["path_exists"]:
+        product_warning = f"⚠️ プロダクト「{product}」のパスが見つかりません（{product_entry['path']}）。"
+
     return {
         "approval_id": approval_id,
         "issue_number": issue_number,
@@ -149,6 +168,9 @@ def _parse_approved_item(path: Path, outputs: Path) -> dict | None:
         "may_edit": may_edit,
         "must_not_touch": must_not_touch,
         "approved_at": approved_at,
+        "product": product,
+        "work_dir": work_dir,
+        "product_warning": product_warning,
     }
 
 
@@ -176,10 +198,12 @@ def _render_item(item: dict) -> str:
     may_edit_md = "\n".join(f"- `{p}`" for p in item["may_edit"])
     must_not_md = "\n".join(f"- `{p}`" for p in item["must_not_touch"])
 
+    warning_line = f"\n> {item['product_warning']}\n" if item.get("product_warning") else ""
+
     return f"""## Issue #{item['issue_number']} — {item['title']}
 
 > ✅ 承認済み（{item['approved_at'] or '承認日時不明'}） / 想定担当: {item['assignee']}
-
+{warning_line}
 ### 対象Issue
 
 Issue #{item['issue_number']}
@@ -187,6 +211,14 @@ Issue #{item['issue_number']}
 ### GitHub URL
 
 {item['github_url'] or '（URL不明）'}
+
+### 対象プロダクト
+
+{item['product']}
+
+### 作業ディレクトリ
+
+`{item['work_dir']}`
 
 ### 実装目的
 
@@ -277,7 +309,14 @@ def get_autonomous_flow_summary(outputs: Path) -> dict | None:
     return {
         "count": len(items),
         "issues": [
-            {"number": i["issue_number"], "title": i["title"], "assignee": i["assignee"]}
+            {
+                "number": i["issue_number"],
+                "title": i["title"],
+                "assignee": i["assignee"],
+                "product": i["product"],
+                "work_dir": i["work_dir"],
+                "product_warning": i.get("product_warning", ""),
+            }
             for i in items
         ],
     }

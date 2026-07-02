@@ -73,6 +73,42 @@ def _get_top_issues(issues_dir: Path, limit: int = 3) -> list[dict]:
     return (high + others)[:limit]
 
 
+def _get_product_issue_stats(issues_dir: Path, implementation_queue_text: str) -> list[dict]:
+    """
+    outputs/issues/*.md（ローカルIssue）と implementation_queue.md（実装キュー）を
+    product ごとに集計する。product 未指定は DEFAULT_PRODUCT を使う。
+    products/*.md に未登録の product は警告フラグを立てる。
+    """
+    from services.product_registry_service import DEFAULT_PRODUCT, get_product_by_name
+
+    counts: dict[str, dict] = {}
+
+    def _touch(product: str) -> dict:
+        return counts.setdefault(product, {"issue_count": 0, "queued_count": 0})
+
+    if issues_dir.exists():
+        for f in sorted(issues_dir.glob("*.md")):
+            text = f.read_text(encoding="utf-8")
+            product_m = re.search(r"## 対象プロダクト\s*\n(.+)", text)
+            product = product_m.group(1).strip() if product_m else DEFAULT_PRODUCT
+            _touch(product)["issue_count"] += 1
+
+    for m in re.finditer(r"\*\*product：\*\*\s*(\S+)", implementation_queue_text):
+        _touch(m.group(1).strip())["queued_count"] += 1
+
+    rows = []
+    for product, c in counts.items():
+        entry = get_product_by_name(product)
+        rows.append({
+            "product": product,
+            "issue_count": c["issue_count"],
+            "queued_count": c["queued_count"],
+            "registered": entry is not None,
+            "path_exists": entry["path_exists"] if entry else False,
+        })
+    return sorted(rows, key=lambda r: r["product"])
+
+
 # ---------- GitHub Open Issues を取得 ----------
 
 def _fetch_github_issues(token: str, owner: str, repo: str) -> list[dict]:
@@ -366,7 +402,65 @@ def generate_dashboard(
         )
     lines.append(pr_section)
 
+    # 管理中プロダクト（v2.1 Quest40）
+    from services.product_registry_service import load_products
+    products = load_products()
+    if products:
+        product_rows = "\n".join(
+            f"| {p['name']} | {p['type']} | {p['status']} | "
+            f"{'✅' if p['path_exists'] else '⚠️ パスなし'} | {p['path']} |"
+            for p in products
+        )
+        product_section = (
+            "\n## 🏢 管理中プロダクト\n\n"
+            f"| プロダクト | 種別 | ステータス | パス | 場所 |\n"
+            f"|-----------|------|-----------|------|------|\n"
+            f"{product_rows}\n\n"
+            f"> 📁 `products/*.md` を編集・追加するとここに反映されます。\n"
+        )
+    else:
+        product_section = (
+            "\n## 🏢 管理中プロダクト\n\n"
+            "登録済みプロダクトなし — `products/*.md` を作成すると表示されます。\n"
+        )
+    lines.append(product_section)
+
+    # プロダクト別Issue状況（v2.2 Quest41）
+    impl_queue_text = _read(outputs / "implementation_queue.md")
+    product_issue_stats = _get_product_issue_stats(issues_dir, impl_queue_text)
+    if product_issue_stats:
+        stat_rows = []
+        for r in product_issue_stats:
+            if not r["registered"]:
+                path_mark = "⚠️ 未登録"
+            elif not r["path_exists"]:
+                path_mark = "⚠️ パスなし"
+            else:
+                path_mark = "✅"
+            stat_rows.append(
+                f"| {r['product']} | {r['issue_count']} | {r['queued_count']} | {path_mark} |"
+            )
+        product_issue_section = (
+            "\n## 📦 プロダクト別Issue状況\n\n"
+            f"| プロダクト | ローカルIssue数 | 実装キュー内 | 状態 |\n"
+            f"|-----------|----------------|-------------|------|\n"
+            f"{chr(10).join(stat_rows)}\n\n"
+            f"> 未登録・パス不明のプロダクトは `products/*.md` を確認してください。\n"
+        )
+    else:
+        product_issue_section = (
+            "\n## 📦 プロダクト別Issue状況\n\n"
+            "Issueなし — `python main.py` 実行後にIssueが生成されると表示されます。\n"
+        )
+    lines.append(product_issue_section)
+
     return "\n".join(lines)
+
+
+def get_product_issue_stats(outputs: Path) -> list[dict]:
+    """dashboard_web など外部から呼び出すための公開ラッパー。"""
+    impl_queue_text = _read(outputs / "implementation_queue.md")
+    return _get_product_issue_stats(outputs / "issues", impl_queue_text)
 
 
 def save_dashboard(

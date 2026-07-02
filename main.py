@@ -93,10 +93,15 @@ def main():
     from services.approval_service import run_approval_generation
     from services.pr_preparation_service import generate_pr_draft
     from services.autonomous_flow_service import run_autonomous_flow_generation
+    from services.product_registry_service import load_products, print_product_status
 
     # 会社メモリ読み込み（起動時に自動実行）
     company_memory = load_company_memory()
     print_memory_status(company_memory)
+
+    # マルチプロダクト読み込み（起動時に自動実行）
+    products = load_products()
+    print_product_status(products)
 
     ceo_input = "もふログの公開準備を進めてください。"
 

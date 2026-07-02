@@ -412,6 +412,9 @@ body {
 .btn-approve  { background: var(--success);  color: #0a2e26; font-size: 0.78rem; padding: 6px 14px; }
 .btn-reject   { background: var(--surface2); color: var(--danger); border: 1px solid var(--danger); font-size: 0.78rem; padding: 6px 14px; }
 
+.auto-refresh-btn { font-size: 0.78rem; padding: 6px 14px; }
+.auto-refresh-btn.is-off { color: var(--warn); }
+
 /* ─── Approval center ─── */
 .approval-summary {
   display: flex;
@@ -596,6 +599,77 @@ body {
   color: var(--muted);
 }
 
+/* ─── Products card ─── */
+.products-card { border-color: var(--accent2); }
+
+.products-list {
+  display: grid;
+  gap: 10px;
+}
+
+.product-row {
+  padding: 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  border-left: 3px solid var(--accent2);
+}
+
+.product-row-warn { border-left-color: var(--warn); }
+
+.product-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.product-name { font-weight: 600; font-size: 0.92rem; }
+
+.product-status {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.product-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.product-path code { color: var(--accent2); }
+
+.product-desc { font-size: 0.84rem; line-height: 1.5; color: var(--text); }
+
+.product-warn-notice {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--warn);
+}
+
+.product-issue-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  border-left: 3px solid var(--accent2);
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.product-issue-name { font-weight: 600; }
+.product-issue-counts { color: var(--muted); font-size: 0.8rem; }
+.product-issue-status { font-size: 0.8rem; }
+.product-issue-row.product-row-warn { border-left-color: var(--warn); }
+
 /* ─── Autonomous flow card ─── */
 .flow-card { border-color: var(--accent); }
 
@@ -607,6 +681,24 @@ body {
   font-size: 0.85rem;
   line-height: 1.6;
   margin-bottom: 12px;
+}
+
+.flow-product-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.flow-product-tag code { color: var(--accent2); }
+
+.flow-product-warn {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--warn);
 }
 
 /* ─── PR draft card ─── */

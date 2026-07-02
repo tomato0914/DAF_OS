@@ -140,6 +140,14 @@ def parse_dashboard() -> dict:
     from services.autonomous_flow_service import get_autonomous_flow_summary
     autonomous_flow = get_autonomous_flow_summary(BASE_DIR / "outputs")
 
+    # 管理中プロダクト（v2.1 Quest40）
+    from services.product_registry_service import get_product_summary
+    products = get_product_summary()
+
+    # プロダクト別Issue状況（v2.2 Quest41）
+    from services.dashboard_generator import get_product_issue_stats
+    product_issue_stats = get_product_issue_stats(BASE_DIR / "outputs")
+
     return {
         "updated": updated,
         "status": status_rows,
@@ -155,6 +163,8 @@ def parse_dashboard() -> dict:
         "rejected_count": rejected_count,
         "pr_draft": pr_draft,
         "autonomous_flow": autonomous_flow,
+        "products": products,
+        "product_issue_stats": product_issue_stats,
         "raw": text,
     }
 
@@ -283,6 +293,20 @@ def api_autonomous_flow():
         return jsonify({"exists": True, "content": path.read_text(encoding="utf-8")})
     except Exception as e:
         return jsonify({"exists": False, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# 管理中プロダクト API（v2.1 Quest40・読み取り専用）
+# ──────────────────────────────────────────
+
+@app.route("/api/products")
+def api_products():
+    """products/*.md から読み込んだプロダクト一覧を返す。"""
+    try:
+        from services.product_registry_service import get_product_summary
+        return jsonify({"products": get_product_summary()})
+    except Exception as e:
+        return jsonify({"products": [], "error": str(e)}), 500
 
 
 if __name__ == "__main__":

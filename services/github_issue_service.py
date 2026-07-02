@@ -12,6 +12,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from services.product_registry_service import DEFAULT_PRODUCT, get_product_by_name
+
 
 # 優先度 → GitHubラベル
 _PRIORITY_LABELS: dict[str, str] = {
@@ -41,6 +43,7 @@ def _extract_section(text: str, heading: str) -> str:
 def parse_issue_file(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8")
     num_m = re.search(r"# Issue #(\d+)", text)
+    product = _extract_section(text, "対象プロダクト") or DEFAULT_PRODUCT
     return {
         "number": num_m.group(1) if num_m else "",
         "title": _extract_section(text, "タイトル"),
@@ -50,6 +53,7 @@ def parse_issue_file(path: Path) -> dict[str, str]:
         "assignee": _extract_section(text, "想定担当"),
         "completion": _extract_section(text, "完了条件"),
         "artifacts": _extract_section(text, "関連成果物"),
+        "product": product,
         "raw": text,
     }
 
@@ -62,7 +66,13 @@ def _build_body(issue: dict[str, str], source_path: Path) -> str:
         f"## 完了条件\n\n{issue['completion']}\n\n"
         f"## 関連成果物\n\n{issue['artifacts']}\n\n"
         f"---\n**優先度**: {issue['priority']}　**想定担当**: {issue['assignee']}"
+        f"　**対象プロダクト**: {issue['product']}"
     )
+
+
+def _prefixed_title(title: str, product: str) -> str:
+    """タイトル先頭に [product] を付与する。"""
+    return f"[{product}] {title}"
 
 
 # ---------- GitHub API クライアント ----------
@@ -169,14 +179,21 @@ def register_issues(
         if not issue["title"]:
             continue
 
-        result = IssueRegistrationResult(issue["number"], issue["title"])
+        # product 検証（存在しないproductは警告のみ・登録自体は止めない）
+        product = issue["product"]
+        if get_product_by_name(product) is None:
+            print(f"  [警告] #{issue['number']} 未登録のプロダクトです: {product}"
+                  f"（products/*.md に登録するとダッシュボードに反映されます）")
 
-        # 重複チェック
-        if issue["title"] in existing_titles:
+        title = _prefixed_title(issue["title"], product)
+        result = IssueRegistrationResult(issue["number"], title)
+
+        # 重複チェック（[product] タイトルで比較）
+        if title in existing_titles:
             result.status = "skipped"
             result.reason = "同タイトルのOpen Issueが既に存在します"
             results.append(result)
-            print(f"  [スキップ] #{issue['number']} {issue['title']}")
+            print(f"  [スキップ] #{issue['number']} {title}")
             continue
 
         # ラベル構築
@@ -191,12 +208,12 @@ def register_issues(
         # Issue作成
         body = _build_body(issue, path)
         try:
-            created = client.create_issue(issue["title"], body, labels)
+            created = client.create_issue(title, body, labels)
             result.status = "created"
             result.github_num = created["number"]
             result.github_url = created["html_url"]
-            existing_titles.add(issue["title"])  # 連続重複を防ぐ
-            print(f"  [作成] #{issue['number']} {issue['title']} → {result.github_url}")
+            existing_titles.add(title)  # 連続重複を防ぐ
+            print(f"  [作成] #{issue['number']} {title} → {result.github_url}")
         except RuntimeError as e:
             result.status = "error"
             result.reason = str(e)
