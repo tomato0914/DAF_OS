@@ -36,6 +36,53 @@ CEOが1コマンドでWebダッシュボードを開けるようにするスク�
 
 ---
 
+## DAF Dashboard.app（Dockから1クリックで開く）
+
+MacのDockから1クリックでWebダッシュボードを開けるように、`DAF Dashboard.app` を作成できます。中身は `open_dashboard.sh` を呼び出すだけの薄いAppleScriptアプリです。
+
+### 作成方法（スクリプトを使う・推奨）
+
+```bash
+./scripts/create_dashboard_app.sh
+```
+
+- `/Applications` に書き込み権限があれば `/Applications/DAF Dashboard.app` を作成します
+- 書き込めない場合は `DAF_OS` フォルダ内に作成します
+- 既に同名の `.app` がある場合は作り直します（置き換え）
+
+### 作成方法（Automator を手動で使う場合）
+
+1. 「Automator」を開き、「新規書類」→「アプリケーション」を選択
+2. アクション検索で「シェルスクリプトを実行」を追加
+3. 「シェル」を `/bin/bash` に設定し、以下を入力する（パスは実際のDAF_OSの場所に置き換える）：
+   ```bash
+   cd /Users/tomato/DAF/DAF_OS
+   ./open_dashboard.sh
+   ```
+4. 「ファイル」→「保存」で名前を `DAF Dashboard`、場所を `アプリケーション` にして保存する
+
+### 作成方法（AppleScriptエディタを手動で使う場合）
+
+1. 「スクリプトエディタ」を開き、新規スクリプトに以下を入力する（パスは実際のDAF_OSの場所に置き換える）：
+   ```applescript
+   do shell script "cd " & quoted form of "/Users/tomato/DAF/DAF_OS" & " && ./open_dashboard.sh > /dev/null 2>&1 &"
+   ```
+2. 「ファイル」→「書き出す」→ ファイル形式を「アプリケーション」にして `DAF Dashboard.app` として保存する
+
+### 使い方
+
+1. 作成した `DAF Dashboard.app` をダブルクリックする、またはDockにドラッグ＆ドロップして常駐させる
+2. クリックすると `open_dashboard.sh` が実行され、`http://localhost:8000` がブラウザで開く
+3. 既にダッシュボードサーバーが起動中の場合は、`open_dashboard.sh` のポート確認ロジックにより二重起動されない
+
+### 完了条件
+
+- `DAF Dashboard.app` をダブルクリックすると `http://localhost:8000` が開く
+- 既にサーバー起動中なら二重起動しない（`open_dashboard.sh` のポートチェックに準拠）
+- Dockに追加できる（通常の `.app` と同様にドラッグ＆ドロップ可能）
+
+---
+
 ## Webダッシュボード（v1.0）
 
 `outputs/dashboard.md` をブラウザで閲覧できます。5秒ごとに自動更新されます。
