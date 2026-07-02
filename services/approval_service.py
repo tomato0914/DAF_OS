@@ -19,6 +19,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from services.approval_advisor_service import (
+    analyze_item,
+    build_advisor_frontmatter,
+    parse_advisor_frontmatter,
+)
+
 BASE_DIR     = Path(__file__).parent.parent
 OUTPUTS      = BASE_DIR / "outputs"
 PENDING_DIR  = OUTPUTS / "approvals" / "pending"
@@ -40,6 +46,14 @@ def _date_prefix() -> str:
 
 def _write_pending(approval_id: str, title: str, type_: str, source: str, body: str) -> Path:
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
+
+    # AI承認アドバイザー（ルールベース・LLM不使用）。失敗しても承認生成自体は止めない。
+    try:
+        advice = analyze_item(title=title, body=body)
+    except Exception:
+        advice = analyze_item(title="", body="")
+    advisor_frontmatter = build_advisor_frontmatter(advice)
+
     content = (
         f"---\n"
         f"id: {approval_id}\n"
@@ -48,6 +62,7 @@ def _write_pending(approval_id: str, title: str, type_: str, source: str, body: 
         f"created_at: {_now()}\n"
         f"source: {source}\n"
         f"status: pending\n"
+        f"{advisor_frontmatter}"
         f"---\n\n"
         f"{body}\n\n"
         f"---\n\n"
@@ -310,12 +325,29 @@ def get_pending_items(outputs: Path) -> list[dict]:
         title_m  = re.search(r"^title: (.+)$", text, re.MULTILINE)
         type_m   = re.search(r"^type: (.+)$", text, re.MULTILINE)
         items.append({
-            "id":    id_m.group(1).strip()    if id_m    else f.stem,
-            "title": title_m.group(1).strip() if title_m else f.stem,
-            "type":  type_m.group(1).strip()  if type_m  else "unknown",
-            "file":  f.name,
+            "id":       id_m.group(1).strip()    if id_m    else f.stem,
+            "title":    title_m.group(1).strip() if title_m else f.stem,
+            "type":     type_m.group(1).strip()  if type_m  else "unknown",
+            "file":     f.name,
+            "advisor":  parse_advisor_frontmatter(text),
         })
     return items
+
+
+def get_undecided_items(outputs: Path, limit: int = 3) -> list[dict]:
+    """
+    AIアドバイザーが「保留」を推奨した承認待ちアイテム（＝CEOが迷いやすい項目）を返す。
+    CEO Daily Brief の「迷っているIssue」向け。
+    """
+    try:
+        items = get_pending_items(outputs)
+        undecided = [
+            i for i in items
+            if i.get("advisor") and i["advisor"].get("action") == "hold"
+        ]
+        return undecided[:limit]
+    except Exception:
+        return []
 
 
 def get_approved_count(outputs: Path) -> int:
@@ -353,6 +385,7 @@ def get_pending_detail(approval_id: str, outputs: Path) -> dict | None:
                 "type":    type_m.group(1).strip()  if type_m  else "unknown",
                 "source":  src_m.group(1).strip()   if src_m   else "",
                 "preview": body[:1500],   # 1500文字でプレビューを打ち切る
+                "advisor": parse_advisor_frontmatter(text),
             }
     return None
 

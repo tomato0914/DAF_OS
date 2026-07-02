@@ -216,6 +216,30 @@ def _get_approval_counts(outputs: Path) -> dict:
 
 
 # ──────────────────────────────────────────
+# 🤔 迷っているIssue（AIアドバイザーが「保留」を推奨した承認待ちアイテム）
+# ──────────────────────────────────────────
+
+def _get_undecided_items(outputs: Path, limit: int = 3) -> list[dict]:
+    def _load():
+        from services.approval_service import get_undecided_items
+        return get_undecided_items(outputs, limit=limit)
+    return _safe(_load, [])
+
+
+def _render_undecided_section(items: list[dict]) -> str:
+    if not items:
+        return "現在、判断に迷っているIssueはありません。\n"
+    lines = []
+    for item in items:
+        advisor = item.get("advisor") or {}
+        action_label = advisor.get("action_label", "保留")
+        reason = (advisor.get("reason") or "").splitlines()
+        reason_first = reason[0] if reason else ""
+        lines.append(f"- **{item['title']}** — AI推奨: {action_label}。{reason_first}")
+    return "\n".join(lines) + "\n"
+
+
+# ──────────────────────────────────────────
 # 📋 今日やること（最大3つ）
 # ──────────────────────────────────────────
 
@@ -279,6 +303,7 @@ def generate_ceo_brief(outputs: Path) -> Path:
     priority_items = _get_top_priority_items(outputs)
     impl_status = _get_implementation_status(outputs)
     approval_counts = _get_approval_counts(outputs)
+    undecided_items = _get_undecided_items(outputs)
     today_actions = _get_today_actions(approval_counts, priority_items, impl_status)
     ceo_message = _get_ceo_message(approval_counts, priority_items)
 
@@ -292,6 +317,8 @@ def generate_ceo_brief(outputs: Path) -> Path:
         f"{_render_priority_section(priority_items)}\n"
         f"## 🚀 実装準備状況\n\n"
         f"{_render_implementation_section(impl_status)}\n"
+        f"## 🤔 迷っているIssue\n\n"
+        f"{_render_undecided_section(undecided_items)}\n"
         f"## 📋 今日やること（3つまで）\n\n"
         + "\n".join(f"{i}. {a}" for i, a in enumerate(today_actions, start=1)) + "\n\n"
         f"## 🌱 CEOへの一言\n\n"
@@ -332,6 +359,7 @@ def get_ceo_brief_summary(outputs: Path) -> dict | None:
         "products": _section("📦 プロダクト状況"),
         "priorities": _section("⚡ 最優先事項 TOP3"),
         "implementation": _section("🚀 実装準備状況"),
+        "undecided": _section("🤔 迷っているIssue"),
         "actions": actions,
         "message": _section("🌱 CEOへの一言"),
     }

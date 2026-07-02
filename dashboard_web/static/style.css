@@ -524,6 +524,50 @@ body {
   line-height: 1.4;
 }
 
+/* ─── AI承認アドバイザー ─── */
+.advisor-block {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+}
+
+.advisor-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.advisor-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  padding: 3px 0;
+}
+
+.advisor-label { color: var(--muted); }
+
+.advisor-action {
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+}
+.advisor-action-approve { background: #16332b; color: var(--success); }
+.advisor-action-hold    { background: #332c16; color: var(--warn); }
+.advisor-action-reject  { background: #33161c; color: var(--danger); }
+
+.advisor-reason {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
 .ac-preview summary {
   font-size: 0.75rem;
   color: var(--muted);
