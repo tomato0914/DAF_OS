@@ -54,6 +54,25 @@ def _date_prefix() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _safe_calculate_confidence_for_pending(approval_id: str, title: str, body: str) -> dict:
+    """
+    Quest70: 承認待ちファイル生成時（≒Issue案ごと）にDecision Confidence Scoreを
+    メタ情報として埋め込むための安全な呼び出しラッパー。
+    confidence_service自体も例外を投げない設計だが、importエラー等も含めて
+    ここで二重に保護し、承認待ちファイル生成自体を止めない。
+
+    Quest68の自己除外（issue_number）も併用し、そのIssue自身を
+    decision_outcomes.md の過去実績から二重カウントしないようにする。
+    """
+    try:
+        from services.confidence_service import calculate_confidence
+        issue_number = _extract_issue_number(approval_id, title)
+        return calculate_confidence(title, body, issue_number=issue_number)
+    except Exception as e:
+        print(f"[警告] Confidence Scoreの計算に失敗しました：{e}")
+        return {"confidence": 30, "reason": "十分な過去データがありません"}
+
+
 def _write_pending(approval_id: str, title: str, type_: str, source: str, body: str) -> Path:
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -64,6 +83,15 @@ def _write_pending(approval_id: str, title: str, type_: str, source: str, body: 
         advice = analyze_item(title="", body="")
     advisor_frontmatter = build_advisor_frontmatter(advice)
 
+    # Quest70: Issue案（承認待ちファイル）ごとにConfidence Scoreを算出し、
+    # frontmatter（機械可読）と本文（人が読む用）の両方に埋め込む。
+    # Dashboard承認センターは引き続きget_pending_detail()側で独自に再計算する（Quest67のまま、変更しない）。
+    # そのため、生成時点の値（このファイル埋め込み分）と閲覧時点の値（Dashboard表示分）は
+    # decision_outcomes.mdの更新状況によってはズレる可能性がある（既知の制約として残す）。
+    confidence_result = _safe_calculate_confidence_for_pending(approval_id, title, body)
+    confidence_value = confidence_result.get("confidence", 30)
+    confidence_reason = confidence_result.get("reason", "十分な過去データがありません")
+
     content = (
         f"---\n"
         f"id: {approval_id}\n"
@@ -72,9 +100,15 @@ def _write_pending(approval_id: str, title: str, type_: str, source: str, body: 
         f"created_at: {_now()}\n"
         f"source: {source}\n"
         f"status: pending\n"
+        f"confidence: {confidence_value}\n"
+        f"confidence_reason: {confidence_reason}\n"
         f"{advisor_frontmatter}"
         f"---\n\n"
         f"{body}\n\n"
+        f"---\n\n"
+        f"## 📊 Confidence\n\n"
+        f"Confidence：{confidence_value}%\n"
+        f"理由：{confidence_reason}\n\n"
         f"---\n\n"
         f"## ✅ 承認するには\n\n"
         f"```bash\n"
@@ -256,6 +290,35 @@ def _load_pending_file(approval_id: str) -> Path | None:
     return None
 
 
+def _try_register_decision_outcome(approval_id: str, content: str, approved_at: str) -> None:
+    """
+    Quest62: 承認完了時に memory/kpi/decision_outcomes.md へ雛形を自動登録する。
+    Issue番号を持たない承認アイテム（memory_review等）は対象外（何もしない）。
+    ここでの失敗は承認フロー自体を止めない（警告ログのみ出す）。
+
+    Quest63: Expected KPIの自動推定（kpi_suggestion_service）がタイトルだけでなく
+    本文（承認アイテムの内容）も参照できるよう、frontmatter以降の本文を body として渡す。
+    """
+    try:
+        title_m = re.search(r"^title: (.+)$", content, re.MULTILINE)
+        title = title_m.group(1).strip() if title_m else ""
+        issue_number = _extract_issue_number(approval_id, title)
+        if not issue_number:
+            return
+
+        # "実装: Issue #90 — プライバシーポリシーの公開準備" → "プライバシーポリシーの公開準備"
+        decision_title = re.sub(r"^実装:\s*Issue\s*#\d+\s*—\s*", "", title).strip() or title
+
+        # frontmatter（--- ... ---）以降の本文をKPI推定の材料として渡す
+        body_m = re.search(r"^---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)", content)
+        body = body_m.group(1).strip() if body_m else ""
+
+        from services.decision_outcome_service import register_decision_outcome
+        register_decision_outcome(issue_number, decision_title, approved_at, body=body)
+    except Exception as e:
+        print(f"[警告] Decision Outcomeの自動登録に失敗しました（承認自体は完了しています）：{e}")
+
+
 def approve(approval_id: str) -> bool:
     """指定した承認アイテムを approved/ に移動する。"""
     src = _load_pending_file(approval_id)
@@ -266,16 +329,20 @@ def approve(approval_id: str) -> bool:
     APPROVED_DIR.mkdir(parents=True, exist_ok=True)
 
     content = src.read_text(encoding="utf-8")
+    approved_at = _now()
     content = content.replace(
         "status: pending",
-        f"status: approved\napproved_at: {_now()}",
+        f"status: approved\napproved_at: {approved_at}",
     )
-    content += f"\n\n> ✅ **承認済み** — {_now()}\n"
+    content += f"\n\n> ✅ **承認済み** — {approved_at}\n"
 
     dst = APPROVED_DIR / src.name
     dst.write_text(content, encoding="utf-8")
     src.unlink()
     print(f"[承認] ✅ 承認しました: {src.name} → approved/")
+
+    _try_register_decision_outcome(approval_id, content, approved_at)
+
     return True
 
 
@@ -312,6 +379,21 @@ def _load_approved_file(approval_id: str) -> Path | None:
 
 def _extract_github_url(text: str) -> str:
     m = re.search(r"\*\*GitHub Issue:\*\*\s*\[([^\]]+)\]", text)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_issue_number(approval_id: str, title: str) -> str:
+    """approval_id または title からIssue番号を抽出する（無ければ空文字）。"""
+    m = re.search(r"impl_issue_(\d+)", approval_id)
+    if m:
+        return m.group(1)
+    m2 = re.search(r"Issue #(\d+)", title)
+    return m2.group(1) if m2 else ""
+
+
+def _extract_product(text: str) -> str:
+    """本文の '**対象プロダクト:** X' 行からプロダクト名を抽出する（無ければ空文字）。"""
+    m = re.search(r"\*\*対象プロダクト:\*\*\s*(\S+)", text)
     return m.group(1).strip() if m else ""
 
 
@@ -440,6 +522,65 @@ def get_completed_count(outputs: Path) -> int:
     return len(list(completed.glob("*.md")))
 
 
+def _parse_history_item(f: Path, text: str, timestamp_field: str) -> dict:
+    """approved/rejected/completed 共通のメタデータ抽出（読み取り専用・既存ロジックには影響しない）。"""
+    id_m    = re.search(r"^id: (.+)$", text, re.MULTILINE)
+    title_m = re.search(r"^title: (.+)$", text, re.MULTILINE)
+    ts_m    = re.search(rf"^{timestamp_field}: (.+)$", text, re.MULTILINE)
+    reason_m = re.search(r"^reason: (.+)$", text, re.MULTILINE)
+
+    approval_id = id_m.group(1).strip() if id_m else f.stem
+    title = title_m.group(1).strip() if title_m else f.stem
+
+    return {
+        "id":           approval_id,
+        "issue_number": _extract_issue_number(approval_id, title),
+        "title":        title,
+        "product":      _extract_product(text),
+        "timestamp":    ts_m.group(1).strip() if ts_m else "",
+        "github_url":   _extract_github_url(text),
+        "reason":       reason_m.group(1).strip() if reason_m else "",
+    }
+
+
+def _status_matches(text: str, expected: str) -> bool:
+    """
+    frontmatterの status: フィールドが期待値と一致するかを確認する。
+    過去に approved/ 配下へ誤って混入した rejected 由来のファイル（v1.5時代の命名残骸）
+    などを一覧から除外するための安全チェック（ファイル自体は削除・移動しない）。
+    """
+    m = re.search(r"^status: (.+)$", text, re.MULTILINE)
+    return bool(m) and m.group(1).strip() == expected
+
+
+def get_approved_items(outputs: Path) -> list[dict]:
+    """approved ファイル一覧をメタデータ付きで返す（承認済み・実装完了前）。"""
+    approved = outputs / "approvals" / "approved"
+    if not approved.exists():
+        return []
+    items = []
+    for f in sorted(approved.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        if not _status_matches(text, "approved"):
+            continue
+        items.append(_parse_history_item(f, text, "approved_at"))
+    return items
+
+
+def get_rejected_items(outputs: Path) -> list[dict]:
+    """rejected ファイル一覧をメタデータ付きで返す（却下理由込み）。"""
+    rejected = outputs / "approvals" / "rejected"
+    if not rejected.exists():
+        return []
+    items = []
+    for f in sorted(rejected.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        if not _status_matches(text, "rejected"):
+            continue
+        items.append(_parse_history_item(f, text, "rejected_at"))
+    return items
+
+
 def get_completed_items(outputs: Path) -> list[dict]:
     """completed ファイル一覧をメタデータ付きで返す。"""
     completed = outputs / "approvals" / "completed"
@@ -448,16 +589,30 @@ def get_completed_items(outputs: Path) -> list[dict]:
     items = []
     for f in sorted(completed.glob("*.md")):
         text = f.read_text(encoding="utf-8")
-        id_m    = re.search(r"^id: (.+)$", text, re.MULTILINE)
-        title_m = re.search(r"^title: (.+)$", text, re.MULTILINE)
-        completed_at_m = re.search(r"^completed_at: (.+)$", text, re.MULTILINE)
-        items.append({
-            "id":           id_m.group(1).strip()    if id_m    else f.stem,
-            "title":        title_m.group(1).strip() if title_m else f.stem,
-            "completed_at": completed_at_m.group(1).strip() if completed_at_m else "",
-            "github_url":   _extract_github_url(text),
-        })
+        if not _status_matches(text, "completed"):
+            continue
+        item = _parse_history_item(f, text, "completed_at")
+        # 既存キー（後方互換のため completed_at も残す）
+        item["completed_at"] = item["timestamp"]
+        items.append(item)
     return items
+
+
+def _safe_calculate_confidence(title: str, body: str, issue_number: str = "") -> dict:
+    """
+    Quest67: Decision Confidence Score（Quest66）を承認待ちIssueに表示するための
+    安全な呼び出しラッパー。confidence_service自体も例外を投げない設計だが、
+    importエラー等も含めてここで二重に保護し、承認一覧の表示自体を壊さない。
+
+    Quest68: issue_number を渡し、評価対象のIssue自身を
+    decision_outcomes.md の過去実績から除外する（自己カウント防止）。
+    """
+    try:
+        from services.confidence_service import calculate_confidence
+        return calculate_confidence(title, body, issue_number=issue_number)
+    except Exception as e:
+        print(f"[警告] Confidence Scoreの取得に失敗しました：{e}")
+        return {"confidence": 30, "reason": "十分な過去データがありません"}
 
 
 def get_pending_detail(approval_id: str, outputs: Path) -> dict | None:
@@ -475,13 +630,37 @@ def get_pending_detail(approval_id: str, outputs: Path) -> dict | None:
             title_m = re.search(r"^title: (.+)$", text, re.MULTILINE)
             type_m  = re.search(r"^type: (.+)$",  text, re.MULTILINE)
             src_m   = re.search(r"^source: (.+)$",text, re.MULTILINE)
+            title = title_m.group(1).strip() if title_m else approval_id
+
+            # Quest71: frontmatterの confidence / confidence_reason をSingle Source of Truthとする。
+            # Quest70でファイル生成時に埋め込まれているため、存在すればそれを使い、
+            # calculate_confidence() は呼ばない（Dashboardと承認待ちファイルの値がズレるのを防ぐ）。
+            # frontmatterに存在しない古いファイル（Quest70より前に生成されたもの）のみ、
+            # 従来通り動的計算にフォールバックする。
+            confidence_m = re.search(r"^confidence: (.+)$", text, re.MULTILINE)
+            reason_m     = re.search(r"^confidence_reason: (.+)$", text, re.MULTILINE)
+            if confidence_m and reason_m:
+                try:
+                    confidence = {
+                        "confidence": int(confidence_m.group(1).strip()),
+                        "reason": reason_m.group(1).strip(),
+                    }
+                except ValueError:
+                    issue_number = _extract_issue_number(approval_id, title)
+                    confidence = _safe_calculate_confidence(title, body, issue_number)
+            else:
+                issue_number = _extract_issue_number(approval_id, title)
+                confidence = _safe_calculate_confidence(title, body, issue_number)
+
             return {
                 "id":      id_m.group(1).strip()    if id_m    else approval_id,
-                "title":   title_m.group(1).strip() if title_m else approval_id,
+                "title":   title,
                 "type":    type_m.group(1).strip()  if type_m  else "unknown",
                 "source":  src_m.group(1).strip()   if src_m   else "",
                 "preview": body[:1500],   # 1500文字でプレビューを打ち切る
                 "advisor": parse_advisor_frontmatter(text),
+                "confidence":        confidence.get("confidence", 30),
+                "confidence_reason": confidence.get("reason", "十分な過去データがありません"),
             }
     return None
 

@@ -36,6 +36,14 @@ def _load_memories(memory_dir: Path) -> dict[str, str]:
 
 
 def _load_report(outputs: Path) -> str:
+    """
+    Quest51: meeting_log.md（5人分の生発言＋各自が根拠にしたmemory）があれば優先する。
+    無い場合は report.md（Orionの最終提案のみ）にフォールバックする（後方互換）。
+    """
+    meeting_log_path = outputs / "meeting_log.md"
+    if meeting_log_path.exists():
+        return meeting_log_path.read_text(encoding="utf-8").strip()
+
     path = outputs / "report.md"
     return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
@@ -84,9 +92,9 @@ def _build_prompt(memories: dict[str, str], report: str) -> str:
     )
 
     report_section = (
-        f"=== 最近の会議レポート（report.md） ===\n{report[:3000]}"
+        f"=== 最近の会議レポート（meeting_log.md優先、無ければreport.md） ===\n{report[:3000]}"
         if report
-        else "=== 最近の会議レポート ===\n（report.md が見つかりません。メモリの内部整合性のみ確認してください）"
+        else "=== 最近の会議レポート ===\n（meeting_log.md / report.md が見つかりません。メモリの内部整合性のみ確認してください）"
     )
 
     return f"""あなたはDAFの会社メモリ管理アドバイザーです。
@@ -168,7 +176,7 @@ def generate_memory_suggestions(
 
     print("[Memory Review] 会社メモリの見直し提案を生成中...")
     if not report:
-        print("  ℹ️  report.md なし — メモリの内部整合性のみ分析します")
+        print("  ℹ️  meeting_log.md / report.md なし — メモリの内部整合性のみ分析します")
 
     try:
         prompt = _build_prompt(memories, report)

@@ -6,13 +6,15 @@ from agents.nova import create_nova
 from agents.cosmos import create_cosmos
 
 
-def build_llm(api_key: str, max_tokens: int = 4096) -> LLM:
+def build_llm(api_key: str, max_tokens: int = 3000) -> LLM:
     """
     max_tokens を明示指定する。
     未指定のままだと litellm が gpt-4o-mini の最大出力（16384）を既定値として使い、
     OpenRouter側の利用上限エラーを引き起こすため、必ず指定する。
-      - 通常処理: 4096（デフォルト）
-      - 長文生成（最終提案書など）: 8000
+      - 通常処理: 3000（デフォルト）
+      - 長文生成（最終提案書など）: 3000
+    8000や4096でも「X requested, only Y available」のようなOpenRouter側の
+    残クレジット不足エラーが発生したため、残クレジットが少ない状態でも動くよう3000に抑えている。
     """
     return LLM(
         model="openrouter/openai/gpt-4o-mini",
@@ -32,8 +34,8 @@ def run_mofulog_crew(
     nova_page_id: str | None = None,
     cosmos_page_id: str | None = None,
 ) -> str:
-    llm = build_llm(openrouter_api_key)  # 通常処理（4096）
-    llm_long = build_llm(openrouter_api_key, max_tokens=8000)  # 長文生成（最終提案書）
+    llm = build_llm(openrouter_api_key)  # 通常処理（3000）
+    llm_long = build_llm(openrouter_api_key, max_tokens=3000)  # 長文生成（最終提案書）
 
     # Orion は最終提案書という長文タスクを担当するため長文用LLMを使う
     orion = create_orion(llm_long, notion_api_key=notion_api_key, page_id=orion_page_id)

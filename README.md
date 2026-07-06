@@ -1216,9 +1216,37 @@ python scripts/security_check_encryption.py
 
 ---
 
+## OpenRouter節約設定
+
+毎日の `run_daf.sh` 実行が少ないクレジットでも失敗しないよう、LLM呼び出しの `max_tokens` を抑えています。
+
+### 設定内容
+
+`crews/launch_crew.py` / `crews/mofulog_crew.py` の `build_llm()` は以下の2種類のLLMを使い分けます。
+
+| 用途 | max_tokens | 対象エージェント |
+|------|-----------|-----------------|
+| 通常処理 | 3000 | Atlas / Sirius / Nova / Cosmos |
+| 長文生成（最終提案書・Issue一括生成） | 3000 | Orion |
+
+もとは長文生成を8000→4096と下げてきましたが、OpenRouterの残クレジットが少ない状態だと
+`8000 requested, only 5832 available`、さらには `4096 requested, only 3973 available` のように
+段階的に利用上限エラーが発生し続けたため、現在はすべて3000に統一しています。
+
+### エラーが再発する場合
+
+`max_tokens` を3000からさらに下げても解決しない場合は、以下を確認してください。
+
+- OpenRouterのアカウント残高（https://openrouter.ai/credits）
+- `.env` の `OPENROUTER_API_KEY` が正しいか
+- 使用モデル（`crews/launch_crew.py` の `model="openrouter/openai/gpt-4o-mini"`）をより安価なモデルに変更する
+
+---
+
 ## トラブルシューティング
 
 - **OPENROUTER_API_KEY エラー**：`.env` にキーが正しく設定されているか確認
+- **`X requested, only Y available` エラー**：OpenRouterの残クレジット不足。上記「OpenRouter節約設定」を参照
 - **Notion接続エラー**：Integration がページに追加されているか確認（ページ右上「Connections」）
 - **pkg_resources エラー**：`pip install "setuptools<70"` を実行
 - **GitHub Pagesが表示されない**：Settings → Pages でブランチ・フォルダの設定を確認。反映まで最大5分かかる

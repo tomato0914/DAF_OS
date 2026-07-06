@@ -6,13 +6,15 @@ from agents.nova import create_nova
 from agents.cosmos import create_cosmos
 
 
-def build_llm(api_key: str, max_tokens: int = 4096) -> LLM:
+def build_llm(api_key: str, max_tokens: int = 3000) -> LLM:
     """
     max_tokens を明示指定する。
     未指定のままだと litellm が gpt-4o-mini の最大出力（16384）を既定値として使い、
     OpenRouter側の利用上限エラーを引き起こすため、必ず指定する。
-      - 通常処理: 4096（デフォルト）
-      - 長文生成（最終提案書・Issue一括生成など）: 8000
+      - 通常処理: 3000（デフォルト）
+      - 長文生成（最終提案書・Issue一括生成など）: 3000
+    8000や4096でも「X requested, only Y available」のようなOpenRouter側の
+    残クレジット不足エラーが発生したため、残クレジットが少ない状態でも動くよう3000に抑えている。
     """
     return LLM(
         model="openrouter/openai/gpt-4o-mini",
@@ -33,11 +35,32 @@ def run_launch_crew(
     cosmos_page_id: str | None = None,
     company_memory: str = "",
 ) -> dict[str, str]:
-    llm = build_llm(openrouter_api_key)  # 通常処理（4096）
-    llm_long = build_llm(openrouter_api_key, max_tokens=8000)  # 長文生成（最終提案書・Issue一括生成）
+    llm = build_llm(openrouter_api_key)  # 通常処理（3000）
+    llm_long = build_llm(openrouter_api_key, max_tokens=3000)  # 長文生成（最終提案書・Issue一括生成）
 
     # 会社メモリがある場合、全タスクの冒頭に付加するプレフィックスを作る
     _mem = f"{company_memory}\n\n" if company_memory else ""
+
+    # Quest54: Memoryを読むだけでなく、現在の状況を踏まえて推論するための共通指示（全6タスクに付与）
+    # Quest56で【経営サマリー】優先の一文を追加。Quest57でCEOの過去の意思決定を参考にする一文を追加。
+    # 注意：この _reasoning_note は crews/meeting_crew.py にも同一の文言で重複定義されている
+    # （MVPのため共通化はまだ行っていない。変更する場合は両ファイルを同時に更新すること）。
+    _reasoning_note = (
+        "\n\n【推論の指針】\n"
+        "- 会社メモリの【経営サマリー】を最優先の事実として扱い、他の記述と矛盾する場合は経営サマリーを優先すること\n"
+        "- 会社メモリの【完了済みIssue一覧】に記載されている項目は解決済みとして扱い、同じ内容を再提案しないこと\n"
+        "- 会社メモリの【プロダクトの現状】を踏まえた上で、今何が必要かを判断すること\n"
+        "- 会社メモリの【CEOの過去の意思決定】を参考にし、CEOが過去に承認・却下した傾向と一貫性のある提案をすること\n"
+        "- CEOからの依頼・質問には一般論で答えず、まずその依頼・質問に直接答えること\n"
+        "- 上記のメモリ内容と矛盾しない、現在の状況に基づいた具体的な提案をすること\n\n"
+    )
+
+    # Quest51: 各回答がどのmemoryを根拠にしたかを明記させる指示（task_issuesには付けない＝Issueテンプレートを崩さないため）
+    _memory_note = (
+        "\n\n回答の最後に必ず `### 参照したmemory` という見出しを付け、"
+        "company_memory.md / ceo_preferences.md / lessons_learned.md / "
+        "自分の社員手帳（例：atlas.md）のうち、どれを根拠にしたかを箇条書きで明記してください。"
+    )
 
     # Orion は最終提案書・Issue一括生成という長文タスクを担当するため長文用LLMを使う
     orion = create_orion(llm_long, notion_api_key=notion_api_key, page_id=orion_page_id)
@@ -48,7 +71,7 @@ def run_launch_crew(
 
     task_sirius = Task(
         description=(
-            f"{_mem}"
+            f"{_mem}{_reasoning_note}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CPOとして、もふログのApp Store掲載用説明文を作成してください。\n"
             "ターゲットは初めて犬を飼った人です。\n\n"
@@ -60,6 +83,7 @@ def run_launch_crew(
             "## 詳細説明（400文字程度）\n"
             "## 主な機能リスト\n"
             "## キーワード（検索用、10個）\n"
+            f"{_memory_note}"
         ),
         expected_output="App Store掲載に使えるMarkdown形式の説明文一式。",
         agent=sirius,
@@ -67,7 +91,7 @@ def run_launch_crew(
 
     task_nova = Task(
         description=(
-            f"{_mem}"
+            f"{_mem}{_reasoning_note}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CMOとして、もふログのSNS投稿文を5本作成してください。\n"
             "ターゲットは初めて犬を飼った人です。\n\n"
@@ -79,6 +103,7 @@ def run_launch_crew(
             "## 投稿4（共感訴求）\n"
             "## 投稿5（ダウンロード促進）\n\n"
             "各投稿には本文とハッシュタグを含めてください。"
+            f"{_memory_note}"
         ),
         expected_output="SNS投稿5本のMarkdown。各投稿に本文とハッシュタグを含む。",
         agent=nova,
@@ -86,7 +111,7 @@ def run_launch_crew(
 
     task_cosmos = Task(
         description=(
-            f"{_mem}"
+            f"{_mem}{_reasoning_note}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CIOとして、アプリ公開前の確認チェックリストを作成してください。\n\n"
             "以下の形式で出力してください：\n\n"
@@ -97,6 +122,7 @@ def run_launch_crew(
             "## 法的確認\n"
             "## インフラ・障害対応\n\n"
             "各項目は「- [ ] タスク内容」形式のチェックボックスで記述してください。"
+            f"{_memory_note}"
         ),
         expected_output="公開前チェックリストのMarkdown。全項目がチェックボックス形式。",
         agent=cosmos,
@@ -104,7 +130,7 @@ def run_launch_crew(
 
     task_atlas = Task(
         description=(
-            f"{_mem}"
+            f"{_mem}{_reasoning_note}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "CTOとして、もふログ公開前の技術リスク確認レポートを作成してください。\n\n"
             "以下の形式で出力してください（report.md の一部として使用します）：\n\n"
@@ -113,6 +139,7 @@ def run_launch_crew(
             "### 公開前に必ず対応すべき事項\n"
             "### 許容できるリスクと理由\n"
             "### 推奨する技術スタック・ツール\n"
+            f"{_memory_note}"
         ),
         expected_output="技術リスク確認レポートのMarkdown。懸念・必須対応・許容リスク・推奨スタックを含む。",
         agent=atlas,
@@ -120,7 +147,7 @@ def run_launch_crew(
 
     task_orion = Task(
         description=(
-            f"{_mem}"
+            f"{_mem}{_reasoning_note}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "Sirius・Nova・Cosmos・Atlasの成果物を踏まえて、"
             "COOとして最終提案書をまとめてください。\n\n"
@@ -136,6 +163,7 @@ def run_launch_crew(
             "### フェーズ2（公開当日）\n"
             "### フェーズ3（公開後 1週間）\n"
             "## CEOへの最終提言\n"
+            f"{_memory_note}"
         ),
         expected_output="6セクション＋3フェーズのアクションプランを含むMarkdown形式の最終提案書。",
         agent=orion,
@@ -144,7 +172,7 @@ def run_launch_crew(
 
     task_issues = Task(
         description=(
-            f"{_mem}"
+            f"{_mem}{_reasoning_note}"
             f"CEOからの依頼：{ceo_input}\n\n"
             "会議の全成果物（App Store説明文・SNS投稿・チェックリスト・技術リスク・最終提案）を踏まえて、"
             "COOとして実装タスク（Issue）を3〜5個生成してください。\n\n"
@@ -171,7 +199,9 @@ def run_launch_crew(
             "---\n\n"
             "# Issue #002\n\n"
             "...\n\n"
-            "Issue番号は001から連番で振ってください。"
+            "Issue番号は001から連番で振ってください。\n\n"
+            "会社メモリの【完了済みIssue一覧】にすでに記載されている内容は、"
+            "再度Issueとして提案しないでください。"
         ),
         expected_output=(
             "3〜5個のIssueをMarkdown形式で出力。各Issueは「---」で区切られ、"
@@ -189,10 +219,48 @@ def run_launch_crew(
 
     crew.kickoff()
 
+    # Quest51: 5人分の生発言（各自が根拠にしたmemoryを含む）を会議ログとして1本化する
+    from datetime import datetime
+
+    # Quest69: 会議提案（CEOからの依頼内容）に対するDecision Confidence Scoreを
+    # 会議ログ末尾に追加する。confidence_serviceが無い・エラーになる場合でも
+    # 会議ログ生成自体は止めない（未分類時と同じ「30% / 十分な過去データがありません」を返す）。
+    # 注意：この _safe_confidence_block は crews/meeting_crew.py にも同一の実装で
+    # 重複定義されている（MVPのため共通化はまだ行っていない。変更する場合は両ファイルを同時に更新すること）。
+    def _safe_confidence_block(text: str) -> str:
+        try:
+            from services.confidence_service import calculate_confidence
+            result = calculate_confidence(text)
+        except Exception as e:
+            print(f"[警告] Confidence Scoreの計算に失敗しました：{e}")
+            result = {"confidence": 30, "reason": "十分な過去データがありません"}
+        confidence = result.get("confidence", 30)
+        reason = result.get("reason", "十分な過去データがありません")
+        return f"## Confidence\nConfidence：{confidence}%\n理由：{reason}\n"
+
+    meeting_log = (
+        f"# もふログ公開準備会議 ログ\n\n"
+        f"> 実行日時: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        f"> CEOからの依頼: {ceo_input}\n\n"
+        "---\n\n"
+        f"## Sirius（CPO）\n\n{task_sirius.output.raw}\n\n"
+        "---\n\n"
+        f"## Nova（CMO）\n\n{task_nova.output.raw}\n\n"
+        "---\n\n"
+        f"## Cosmos（CIO）\n\n{task_cosmos.output.raw}\n\n"
+        "---\n\n"
+        f"## Atlas（CTO）\n\n{task_atlas.output.raw}\n\n"
+        "---\n\n"
+        f"## Orion（COO）\n\n{task_orion.output.raw}\n\n"
+        "---\n\n"
+        f"{_safe_confidence_block(ceo_input)}"
+    )
+
     return {
         "appstore_description": str(task_sirius.output.raw),
         "social_posts": str(task_nova.output.raw),
         "launch_checklist": str(task_cosmos.output.raw),
         "report": str(task_orion.output.raw),
         "issues_raw": str(task_issues.output.raw),
+        "meeting_log": meeting_log,
     }
