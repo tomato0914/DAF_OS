@@ -7,15 +7,23 @@ import re
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 from flask import Flask, render_template, jsonify, request
 
 # services/ を import パスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+load_dotenv()
+
 app = Flask(__name__)
 
 BASE_DIR = Path(__file__).parent.parent
 DASHBOARD_MD = BASE_DIR / "outputs" / "dashboard.md"
+
+# main.py と同様にCWDをDAF_OSルートへ固定する。
+# agents/*.py が memory/*.md を相対パスで参照するため、起動時のCWDに依存してしまうと
+# （Quest52で発見）Flaskをどこから起動したかによって FileNotFoundError になる。
+os.chdir(BASE_DIR)
 
 
 # ──────────────────────────────────────────
@@ -69,6 +77,20 @@ def _progress_blocks(text: str) -> list[dict]:
             "detail": m.group(4).strip(),
         })
     return results
+
+
+def _read_raw_or_none(path: Path) -> str | None:
+    """
+    ファイルが存在すれば内容をそのまま返し、無ければNoneを返す。読み込み
+    失敗時もNoneを返し、例外を投げない（Dashboard最新化・Quest80〜87の
+    生成物をそのまま表示するための最小限のヘルパー）。
+    """
+    try:
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8").strip() or None
+    except Exception:
+        return None
 
 
 def _agent_status(text: str) -> list[dict]:
@@ -137,12 +159,14 @@ def parse_dashboard() -> dict:
 
     # 承認センター
     from services.approval_service import (
-        get_pending_items, get_approved_count, get_rejected_count, get_completed_count,
+        get_pending_items, get_approved_count, get_rejected_count,
+        get_completed_count, get_completed_items,
     )
     pending_items   = get_pending_items(BASE_DIR / "outputs")
     approved_count  = get_approved_count(BASE_DIR / "outputs")
     rejected_count  = get_rejected_count(BASE_DIR / "outputs")
     completed_count = get_completed_count(BASE_DIR / "outputs")
+    completed_items = get_completed_items(BASE_DIR / "outputs")
 
     # PRドラフト（v1.7）
     from services.pr_preparation_service import get_pr_draft_summary
@@ -168,6 +192,20 @@ def parse_dashboard() -> dict:
     from services.ceo_brief_service import get_ceo_brief_summary
     ceo_brief = get_ceo_brief_summary(BASE_DIR / "outputs")
 
+    # Reflection Summary（Quest61・読み取り専用。reflection_report.md が無ければ None）
+    from services.reflection_service import get_reflection_summary
+    reflection = get_reflection_summary(BASE_DIR / "outputs")
+
+    # Dashboard最新化（Quest80〜87の生成物を読み取り専用でそのまま表示する）。
+    # それぞれ個別にtry/exceptで守り、1つが読み込めなくてもDashboard全体を
+    # 落とさない。v1はMarkdown本文をそのまま表示するだけなので、生の文字列
+    # （存在しなければNone）をそのまま返す。
+    ceo_inbox = _read_raw_or_none(BASE_DIR / "outputs" / "ceo_inbox.md")
+    capital_allocation = _read_raw_or_none(BASE_DIR / "outputs" / "capital_allocation.md")
+    issue_pipeline = _read_raw_or_none(BASE_DIR / "outputs" / "issue_pipeline" / "generated_issues.md")
+    weekly_board_meeting = _read_raw_or_none(BASE_DIR / "outputs" / "weekly_board_meeting.md")
+    self_improvement = _read_raw_or_none(BASE_DIR / "outputs" / "self_improvement_suggestions.md")
+
     return {
         "updated": updated,
         "status": status_rows,
@@ -182,12 +220,19 @@ def parse_dashboard() -> dict:
         "approved_count": approved_count,
         "rejected_count": rejected_count,
         "completed_count": completed_count,
+        "completed_items": completed_items,
         "pr_draft": pr_draft,
         "autonomous_flow": autonomous_flow,
         "products": products,
         "product_issue_stats": product_issue_stats,
         "approved_implementation_count": approved_implementation_count,
         "ceo_brief": ceo_brief,
+        "reflection": reflection,
+        "ceo_inbox": ceo_inbox,
+        "capital_allocation": capital_allocation,
+        "issue_pipeline": issue_pipeline,
+        "weekly_board_meeting": weekly_board_meeting,
+        "self_improvement": self_improvement,
         "raw": text,
     }
 
@@ -229,11 +274,12 @@ def _safe_approval_id(raw_id: str) -> str | None:
 
 @app.route("/api/approvals")
 def api_approvals():
-    """承認待ち一覧 + 件数を返す。"""
+    """承認待ち一覧 + 件数 + 承認済み/却下済み/実装完了の一覧を返す。"""
     try:
         from services.approval_service import (
-            get_pending_items, get_approved_count,
-            get_rejected_count, get_pending_detail, get_completed_count,
+            get_pending_items, get_approved_count, get_approved_items,
+            get_rejected_count, get_rejected_items,
+            get_pending_detail, get_completed_count, get_completed_items,
         )
         items = get_pending_items(OUTPUTS_DIR)
         # 各アイテムにプレビューを付加
@@ -247,6 +293,9 @@ def api_approvals():
             "approved_count": get_approved_count(OUTPUTS_DIR),
             "rejected_count": get_rejected_count(OUTPUTS_DIR),
             "completed_count": get_completed_count(OUTPUTS_DIR),
+            "approved_items": get_approved_items(OUTPUTS_DIR),
+            "rejected_items": get_rejected_items(OUTPUTS_DIR),
+            "completed_items": get_completed_items(OUTPUTS_DIR),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -354,18 +403,32 @@ def api_products():
 
 
 # ──────────────────────────────────────────
-# ワンクリック実装準備 API（v2.3 Quest42）
+# ワンクリック実装準備 API（v2.3 Quest42 / Quest48で選択実装に対応）
 # ──────────────────────────────────────────
 
 @app.route("/api/start_implementation", methods=["POST"])
 def api_start_implementation():
     """
     承認済み実装アイテムから autonomous_flow.md / claude_code_prompt.md を生成する。
+    リクエストボディに "approval_ids": [...] を指定すると、そのIssueだけを
+    claude_code_prompt.md に含める（Quest48）。指定しなければ従来どおり全件が対象。
     git commit / push / Claude Code起動は一切行わない。
     """
     try:
+        data = request.get_json(silent=True) or {}
+        raw_ids = data.get("approval_ids") or []
+        if not isinstance(raw_ids, list):
+            return jsonify({"ok": False, "message": "approval_ids はリストで指定してください"}), 400
+
+        approval_ids = []
+        for raw_id in raw_ids:
+            safe_id = _safe_approval_id(str(raw_id))
+            if not safe_id:
+                return jsonify({"ok": False, "message": f"無効なIDです: {raw_id}"}), 400
+            approval_ids.append(safe_id)
+
         from services.implementation_launcher_service import start_implementation
-        result = start_implementation(OUTPUTS_DIR)
+        result = start_implementation(OUTPUTS_DIR, approval_ids=approval_ids or None)
         return jsonify(result), (200 if result["ok"] else 400)
     except Exception as e:
         return jsonify({"ok": False, "message": str(e)}), 500
@@ -387,7 +450,224 @@ def api_ceo_brief():
         return jsonify({"exists": False, "error": str(e)}), 500
 
 
+# ──────────────────────────────────────────
+# AI経営会議UI API（v2.7 Quest52・MVP）
+# ──────────────────────────────────────────
+
+@app.route("/api/meeting/start", methods=["POST"])
+def api_meeting_start():
+    """
+    CEOの相談テキストを相談専用のMeeting Crew（run_meeting_crew、Quest55）へ渡し、
+    outputs/meeting_log.md を上書き生成する。
+    App Store説明文・SNS投稿・チェックリスト・GitHub Issue生成などの固定テンプレートは扱わない
+    （それらは main.py / ./run_daf.sh が使う run_launch_crew の役割のまま）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        message = str(data.get("message", "")).strip()[:2000]
+        if not message:
+            return jsonify({"ok": False, "message": "相談内容を入力してください"}), 400
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return jsonify({
+                "ok": False,
+                "message": "OPENROUTER_API_KEY が設定されていません。.env ファイルを確認してください。",
+            }), 400
+
+        from crews.meeting_crew import run_meeting_crew
+        from services.memory_service import load_company_memory
+
+        company_memory = load_company_memory()
+
+        try:
+            results = run_meeting_crew(
+                ceo_input=message,
+                openrouter_api_key=api_key,
+                notion_api_key=os.getenv("NOTION_API_KEY") or None,
+                company_memory=company_memory,
+            )
+        except Exception as e:
+            return jsonify({
+                "ok": False,
+                "message": f"AI経営会議の実行中にエラーが発生しました：{e}",
+            }), 500
+
+        meeting_log = results["meeting_log"]
+        (OUTPUTS_DIR / "meeting_log.md").write_text(meeting_log, encoding="utf-8")
+
+        return jsonify({"ok": True, "meeting_log": meeting_log})
+    except Exception as e:
+        return jsonify({"ok": False, "message": f"予期しないエラーが発生しました：{e}"}), 500
+
+
+# ──────────────────────────────────────────
+# Project Management API（Quest93）
+# 指示書は POST /projects/create・GET /projects・POST /projects/archive を
+# 挙げていたが、既存APIがすべて /api/ 配下に統一されているため
+# （/api/approvals・/api/pr_draft 等）、既存構成に合わせて /api/projects... とした。
+# ──────────────────────────────────────────
+
+PROJECTS_DIR = BASE_DIR / "projects"
+
+
+@app.route("/api/projects")
+def api_projects():
+    """登録済みProject一覧を返す。"""
+    try:
+        from services.project_service import list_projects
+        return jsonify({"projects": list_projects(projects_dir=PROJECTS_DIR)})
+    except Exception as e:
+        return jsonify({"projects": [], "error": str(e)}), 500
+
+
+@app.route("/api/projects/create", methods=["POST"])
+def api_projects_create():
+    """新規Projectを作成する（New Projectフォームから呼ばれる）。"""
+    try:
+        data = request.get_json(force=True) or {}
+        name = str(data.get("name", "")).strip()[:200]
+        asset_type = str(data.get("asset_type", "generic")).strip()[:50]
+        vision = str(data.get("vision", "")).strip()[:2000]
+        raw_metrics = data.get("success_metrics") or []
+
+        if not name:
+            return jsonify({"ok": False, "error": "Project Nameを入力してください"}), 400
+
+        success_metrics = None
+        if isinstance(raw_metrics, list):
+            success_metrics = [str(m).strip()[:200] for m in raw_metrics if str(m).strip()]
+        elif isinstance(raw_metrics, str) and raw_metrics.strip():
+            success_metrics = [line.strip() for line in raw_metrics.splitlines() if line.strip()]
+
+        from services.project_service import create_project
+        result = create_project(
+            name=name,
+            asset_type=asset_type,
+            vision=vision,
+            success_metrics=success_metrics,
+            projects_dir=PROJECTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/archive", methods=["POST"])
+def api_projects_archive():
+    """指定ProjectのStatusをarchivedにする。"""
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        from services.project_service import archive_project
+        result = archive_project(project_id, projects_dir=PROJECTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# Dashboard v1（試験運用版）API
+# CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
+# 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても
+# Dashboard全体を落とさない。
+# ──────────────────────────────────────────
+
+@app.route("/api/generated-assets")
+def api_generated_assets():
+    """outputs/generated_assets/*/metadata.md を集計して返す。"""
+    try:
+        from services.asset_generator_service import list_generated_assets
+        return jsonify({"assets": list_generated_assets(outputs_dir=OUTPUTS_DIR)})
+    except Exception as e:
+        return jsonify({"assets": [], "error": str(e)}), 500
+
+
+@app.route("/api/notifications")
+def api_notifications():
+    """outputs/notifications.md を新しい順で返す。"""
+    try:
+        from services.notification_service import get_notifications
+        return jsonify({"notifications": get_notifications(outputs_dir=OUTPUTS_DIR)})
+    except Exception as e:
+        return jsonify({"notifications": [], "error": str(e)}), 500
+
+
+def _compute_next_action(pending_review_assets, pending_implementation_count, active_projects_count):
+    """CEO Homeの「Next Action」を優先順位ルールに従って決定する。"""
+    if pending_review_assets:
+        return f"{pending_review_assets[0]['asset_type']} をレビューしてください。"
+    if pending_implementation_count > 0:
+        return "実装待ちIssueがあります。"
+    if active_projects_count > 0:
+        return "Execution Planを確認してください。"
+    return "新しいProjectを作成してください。"
+
+
+@app.route("/api/dashboard/home")
+def api_dashboard_home():
+    """
+    CEO Home向けの集計値（Active Projects・Pending Reviews・Notifications・
+    Pending Implementation・Next Action）を返す。各情報源の取得は個別に
+    try/exceptで守り、1つが失敗しても他の値・Next Action判定には影響しない
+    （失敗した項目は0件・空扱いにフォールバックする）。
+    """
+    try:
+        active_projects_count = 0
+        try:
+            from services.project_service import list_projects
+            projects = list_projects(projects_dir=PROJECTS_DIR)
+            active_projects_count = len([p for p in projects if p.get("status") == "active"])
+        except Exception:
+            pass
+
+        pending_review_assets = []
+        try:
+            from services.asset_generator_service import list_generated_assets
+            assets = list_generated_assets(outputs_dir=OUTPUTS_DIR)
+            pending_review_assets = [a for a in assets if a.get("status") == "pending_review"]
+        except Exception:
+            pass
+
+        notifications_count = 0
+        try:
+            from services.notification_service import get_notifications
+            notifications_count = len(get_notifications(outputs_dir=OUTPUTS_DIR))
+        except Exception:
+            pass
+
+        pending_implementation_count = 0
+        try:
+            from services.issue_pipeline_service import load_generated_issues
+            issues = load_generated_issues(outputs_dir=OUTPUTS_DIR)
+            pending_implementation_count = len([i for i in issues if i.get("status") == "pending_implementation"])
+        except Exception:
+            pass
+
+        next_action = _compute_next_action(pending_review_assets, pending_implementation_count, active_projects_count)
+
+        return jsonify({
+            "active_projects": active_projects_count,
+            "pending_reviews": len(pending_review_assets),
+            "notifications": notifications_count,
+            "pending_implementation": pending_implementation_count,
+            "next_action": next_action,
+        })
+    except Exception as e:
+        return jsonify({
+            "active_projects": 0,
+            "pending_reviews": 0,
+            "notifications": 0,
+            "pending_implementation": 0,
+            "next_action": "新しいProjectを作成してください。",
+            "error": str(e),
+        }), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     print(f"DAF OS Dashboard → http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

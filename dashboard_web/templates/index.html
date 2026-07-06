@@ -22,10 +22,13 @@
 
 <!-- タブナビゲーション -->
 <nav class="tab-nav">
-  <button class="tab-btn active" onclick="switchTab('dashboard')">📊 ダッシュボード</button>
-  <button class="tab-btn" onclick="switchTab('approvals')" id="tabApprovals">
+  <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 ダッシュボード</button>
+  <button class="tab-btn" data-tab="approvals" onclick="switchTab('approvals')" id="tabApprovals">
     ✅ 承認センター <span class="tab-badge" id="pendingBadge" style="display:none"></span>
   </button>
+  <button class="tab-btn" data-tab="projects" onclick="switchTab('projects')" id="tabProjects">🗂️ プロジェクト</button>
+  <button class="tab-btn" data-tab="assets" onclick="switchTab('assets')" id="tabAssets">🎨 Generated Assets</button>
+  <button class="tab-btn" data-tab="notifications" onclick="switchTab('notifications')" id="tabNotifications">🔔 Notifications</button>
 </nav>
 
 <!-- ダッシュボードタブ -->
@@ -39,6 +42,57 @@
 <!-- 承認センタータブ -->
 <main class="container" id="tabApprovalCenter" style="display:none">
   <div class="card full" id="approvalContent">
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
+</main>
+
+<!-- プロジェクトタブ（Quest93） -->
+<main class="container" id="tabProjectCenter" style="display:none">
+  <div class="card full">
+    <div class="card-title">🆕 New Project</div>
+    <div class="project-form">
+      <label class="project-form-label">Project Name</label>
+      <input type="text" class="project-input" id="newProjectName" placeholder="例：犬のLINEスタンプ販売">
+
+      <label class="project-form-label">Asset Type</label>
+      <select class="project-input" id="newProjectAssetType">
+        <option value="line_sticker">line_sticker</option>
+        <option value="youtube_short">youtube_short</option>
+        <option value="blog">blog</option>
+        <option value="ebook">ebook</option>
+        <option value="ios_app">ios_app</option>
+        <option value="saas">saas</option>
+        <option value="generic">generic</option>
+      </select>
+
+      <label class="project-form-label">Vision</label>
+      <textarea class="project-input" id="newProjectVision" rows="2" placeholder="例：犬好きの人が毎日使いたくなるLINEスタンプを作る。"></textarea>
+
+      <label class="project-form-label">Success Metrics（1行に1つ）</label>
+      <textarea class="project-input" id="newProjectMetrics" rows="3" placeholder="1作品公開&#10;販売10件&#10;月100円売上"></textarea>
+
+      <button class="btn btn-approve" id="createProjectBtn" onclick="createProject()">Create</button>
+    </div>
+  </div>
+
+  <div class="card full" id="projectListContent">
+    <div class="card-title">🗂️ Project一覧</div>
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
+</main>
+
+<!-- Generated Assetsタブ（Dashboard v1試験運用版） -->
+<main class="container" id="tabAssetCenter" style="display:none">
+  <div class="card full" id="assetListContent">
+    <div class="card-title">🎨 Generated Assets</div>
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
+</main>
+
+<!-- Notificationsタブ（Dashboard v1試験運用版） -->
+<main class="container" id="tabNotificationCenter" style="display:none">
+  <div class="card full" id="notificationListContent">
+    <div class="card-title">🔔 Notifications</div>
     <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
   </div>
 </main>
@@ -68,13 +122,26 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tabDashboard').style.display       = tab === 'dashboard' ? '' : 'none';
   document.getElementById('tabApprovalCenter').style.display  = tab === 'approvals' ? '' : 'none';
-  event.currentTarget.classList.add('active');
+  document.getElementById('tabProjectCenter').style.display   = tab === 'projects' ? '' : 'none';
+  document.getElementById('tabAssetCenter').style.display     = tab === 'assets' ? '' : 'none';
+  document.getElementById('tabNotificationCenter').style.display = tab === 'notifications' ? '' : 'none';
+  // タブボタン以外（CEOサマリーのタイルなど）から呼ばれても安全なように、
+  // 暗黙の event を使わず data-tab 属性で対象ボタンを探す
+  const activeBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+  if (activeBtn) activeBtn.classList.add('active');
   if (tab === 'approvals') fetchApprovals();
+  if (tab === 'projects') fetchProjects();
+  if (tab === 'assets') fetchGeneratedAssets();
+  if (tab === 'notifications') fetchNotifications();
 }
 
 // ────────────────────────────────
 // ダッシュボードレンダラー
 // ────────────────────────────────
+
+// Quest52: 会議実行中は自動更新による全体再描画で入力内容・結果が消えないようにする
+let meetingBusy = false;
+let lastMeetingResult = null; // { ok, message, meeting_log, input }
 
 function stateClass(state) {
   if (!state) return 'none';
@@ -161,7 +228,7 @@ function renderGitHub(issues, enabled) {
       : '<code>GITHUB_TOKEN</code> を .env に追加するとOpen Issueがここに表示されます。';
     return `<div class="gh-disabled">${msg}</div>`;
   }
-  return `<table class="issues-table">
+  return `<div class="table-scroll"><table class="issues-table">
     <thead><tr><th>#</th><th>タイトル</th></tr></thead>
     <tbody>` +
     issues.map(i =>
@@ -169,7 +236,43 @@ function renderGitHub(issues, enabled) {
         <td class="issue-num"><a href="${esc(i.url)}" target="_blank">#${Number(i.number)}</a></td>
         <td><a href="${esc(i.url)}" target="_blank">${esc(i.title)}</a></td>
       </tr>`
-    ).join('') + `</tbody></table>`;
+    ).join('') + `</tbody></table></div>`;
+}
+
+function renderReflectionCard(reflection) {
+  if (!reflection) {
+    return `
+      <div class="card full reflection-card">
+        <div class="card-title">🪞 振り返り（Reflection Summary）</div>
+        <div class="reflection-empty">まだ振り返りデータはありません</div>
+      </div>
+    `;
+  }
+
+  const renderList = (items) => {
+    if (!items || items.length === 0) {
+      return '<div class="reflection-empty">データなし</div>';
+    }
+    return '<ul class="reflection-list">' + items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>';
+  };
+
+  return `
+    <div class="card full reflection-card">
+      <div class="card-title">🪞 振り返り（Reflection Summary）</div>
+      <div class="reflection-section">
+        <div class="reflection-section-title">✅ 成功した判断</div>
+        ${renderList(reflection.success)}
+      </div>
+      <div class="reflection-section">
+        <div class="reflection-section-title">⚠️ 改善が必要な判断</div>
+        ${renderList(reflection.needs_review)}
+      </div>
+      <div class="reflection-section">
+        <div class="reflection-section-title">📌 次回会議への反映</div>
+        ${renderList(reflection.next_meeting)}
+      </div>
+    </div>
+  `;
 }
 
 function renderCeoBriefCard(brief) {
@@ -213,6 +316,165 @@ function renderCeoBriefCard(brief) {
   `;
 }
 
+// Dashboard最新化（Quest80〜87の生成物）：Markdown本文をそのままカード表示する。
+// v1のためMarkdown→HTML変換はせず、.ac-pre（折り返し・スクロール対応）にそのまま流し込む。
+function renderRawMarkdownCard(title, emoji, content, accentClass) {
+  if (!content) {
+    return `
+      <div class="card full ${accentClass || ''}">
+        <div class="card-title">${emoji} ${esc(title)}</div>
+        <div class="ceo-brief-empty">まだ生成されていません。</div>
+      </div>
+    `;
+  }
+  return `
+    <div class="card full ${accentClass || ''}">
+      <div class="card-title">${emoji} ${esc(title)}</div>
+      <pre class="ac-pre">${esc(content)}</pre>
+    </div>
+  `;
+}
+
+function renderCeoInboxCard(content) {
+  return renderRawMarkdownCard('CEO Inbox', '📥', content, 'card-accent-red');
+}
+function renderCapitalAllocationCard(content) {
+  return renderRawMarkdownCard('Capital Allocation', '💰', content, 'card-accent-yellow');
+}
+function renderIssuePipelineCard(content) {
+  return renderRawMarkdownCard('Issue Pipeline', '🛠️', content, 'card-accent-blue');
+}
+function renderWeeklyBoardMeetingCard(content) {
+  return renderRawMarkdownCard('Weekly Board Meeting', '📅', content, 'card-accent-purple');
+}
+function renderSelfImprovementCard(content) {
+  return renderRawMarkdownCard('Self Improvement Suggestions', '🌱', content, 'card-accent-green');
+}
+
+function renderMeetingCard() {
+  const busyAttr = meetingBusy ? 'disabled' : '';
+  const btnLabel = meetingBusy ? '⏳ 会議中...（数十秒〜数分かかります）' : '🤖 経営会議を開始';
+  const inputValue = meetingBusy && lastMeetingResult ? esc(lastMeetingResult.input) : '';
+
+  let resultHtml = '';
+  if (lastMeetingResult && !meetingBusy) {
+    if (lastMeetingResult.ok) {
+      resultHtml = `<div class="meeting-result ok"><pre class="meeting-log-output">${esc(lastMeetingResult.meeting_log)}</pre></div>`;
+    } else {
+      resultHtml = `<div class="meeting-result error">⚠️ ${esc(lastMeetingResult.message)}</div>`;
+    }
+  }
+
+  return `
+    <div class="card full meeting-card card-accent-blue">
+      <div class="card-title">💬 DAFに相談</div>
+      <div class="meeting-notice">
+        相談内容をAI経営会議（Sirius/Nova/Cosmos/Atlas/Orion）に渡し、各自の判断基準・会社メモリを踏まえて回答します。
+        ⚠️ 相談結果は直近の <code>outputs/meeting_log.md</code> を上書きします。数十秒〜数分かかります。
+      </div>
+      <textarea id="meetingInput" class="meeting-input" rows="3" placeholder="例：来月の優先施策について相談したい" ${busyAttr}>${inputValue}</textarea>
+      <button class="btn btn-launch" id="meetingBtn" onclick="startMeeting()" ${busyAttr}>${btnLabel}</button>
+      <div id="meetingResult">${resultHtml}</div>
+    </div>
+  `;
+}
+
+function startMeeting() {
+  const input = document.getElementById('meetingInput');
+  const message = input.value.trim();
+
+  if (!message) {
+    lastMeetingResult = { ok: false, message: '相談内容を入力してください' };
+    renderDashboard(_lastDashboardData || {});
+    return;
+  }
+
+  meetingBusy = true;
+  lastMeetingResult = { input: message };
+  renderDashboard(_lastDashboardData || {});
+
+  fetch('/api/meeting/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ data }) => {
+      lastMeetingResult = data.ok
+        ? { ok: true, meeting_log: data.meeting_log }
+        : { ok: false, message: data.message };
+    })
+    .catch(e => {
+      lastMeetingResult = { ok: false, message: `エラー: ${e}` };
+    })
+    .finally(() => {
+      meetingBusy = false;
+      fetchDashboard();
+    });
+}
+
+function renderCeoSummaryCard(data) {
+  const pendingCount  = (data.pending_approvals || []).length;
+  const readyCount    = Number(data.approved_implementation_count) || 0;
+  const completedCount = Number(data.completed_count) || 0;
+
+  // 今日の最重要アクション：CEO Daily Brief優先、無ければ「次にCEOがやること」にフォールバック
+  const topAction =
+    (data.ceo_brief && data.ceo_brief.actions && data.ceo_brief.actions[0]) ||
+    (data.actions && data.actions[0]) ||
+    '現在、緊急のアクションはありません。';
+
+  // OpenRouter残高注意：バックエンドにデータソースがある場合のみ表示（無ければ何も出さない）
+  const openrouterWarning = data.openrouter_warning
+    ? `<div class="ceo-summary-warning">⚠️ ${esc(data.openrouter_warning)}</div>`
+    : '';
+
+  return `
+    <div class="card full ceo-summary-card">
+      <div class="card-title">🎯 CEOサマリー</div>
+      <div class="ceo-summary-headline">
+        <span class="ceo-summary-headline-icon">👉</span>
+        <div class="ceo-summary-headline-body">
+          <div class="ceo-summary-headline-label">今日の最重要アクション</div>
+          <div class="ceo-summary-headline-text">${esc(stripMarkdown(topAction))}</div>
+        </div>
+      </div>
+      ${openrouterWarning}
+      <div class="ceo-summary-grid">
+        <div class="ceo-summary-tile tile-yellow" onclick="switchTab('approvals')" title="承認センターを開く">
+          <div class="ceo-summary-tile-num">${pendingCount}</div>
+          <div class="ceo-summary-tile-label">🟡 承認待ち</div>
+        </div>
+        <div class="ceo-summary-tile tile-blue">
+          <div class="ceo-summary-tile-num">${readyCount}</div>
+          <div class="ceo-summary-tile-label">🔵 実装準備完了</div>
+        </div>
+        <div class="ceo-summary-tile tile-green">
+          <div class="ceo-summary-tile-num">${completedCount}</div>
+          <div class="ceo-summary-tile-label">🟢 完了</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCompletedCard(items) {
+  if (!items || items.length === 0) return '';
+  const rows = items.map(i => `
+    <div class="completed-row">
+      <span class="completed-row-title">✅ ${esc(i.title)}</span>
+      <span class="completed-row-meta">${esc(i.completed_at || '')}</span>
+      ${i.github_url ? `<a class="completed-row-link" href="${esc(i.github_url)}" target="_blank">GitHub Issue ＞</a>` : ''}
+    </div>
+  `).join('');
+  return `
+    <div class="card full card-accent-green">
+      <div class="card-title">🟢 完了済み（${items.length}件）</div>
+      <div class="products-list">${rows}</div>
+    </div>
+  `;
+}
+
 function renderDashboard(data) {
   if (data.error) {
     document.getElementById('tabDashboard').innerHTML =
@@ -232,50 +494,69 @@ function renderDashboard(data) {
   }
 
   const html = `
+    <div id="ceoHomeContainer"></div>
+
+    ${renderCeoInboxCard(data.ceo_inbox)}
+    ${renderCapitalAllocationCard(data.capital_allocation)}
+    ${renderIssuePipelineCard(data.issue_pipeline)}
+    ${renderWeeklyBoardMeetingCard(data.weekly_board_meeting)}
+    ${renderSelfImprovementCard(data.self_improvement)}
+
+    ${renderMeetingCard()}
+    ${renderCeoSummaryCard(data)}
     ${renderCeoBriefCard(data.ceo_brief)}
-    <div class="card full">
-      <div class="card-title">今日の状況</div>
-      ${renderStatus(data.status)}
-    </div>
-    <div class="card">
-      <div class="card-title">次にCEOがやること</div>
-      ${renderActions(data.actions)}
-    </div>
-    <div class="card">
-      <div class="card-title">最新のAI提案</div>
-      ${renderProposal(data.proposal)}
-    </div>
-    <div class="card">
-      <div class="card-title">進捗バー</div>
-      ${renderProgress(data.progress, data.agents)}
-    </div>
-    <div class="card">
-      <div class="card-title">GitHub Open Issues</div>
-      ${renderGitHub(data.github_issues, data.github_enabled)}
-    </div>
-    ${data.memory_suggestions ? `
-    <div class="card full memory-banner">
-      <div class="card-title">メモリ見直し提案</div>
-      <div class="memory-notice">
-        💡 <strong>AIからの提案があります</strong> — 会社メモリの見直し候補が生成されました。
-        <span class="memory-hint">承認センタータブまたは outputs/memory_update_suggestions.md を確認してください。</span>
-      </div>
-    </div>` : ''}
-    ${renderProductsCard(data.products)}
-    ${renderProductIssueStatsCard(data.product_issue_stats)}
+    ${renderReflectionCard(data.reflection)}
     ${renderLauncherCard(data.approved_implementation_count)}
     ${renderAutonomousFlowCard(data.autonomous_flow)}
+    ${renderCompletedCard(data.completed_items)}
     ${renderPrDraftCard(data.pr_draft)}
+
+    <details class="card full log-section">
+      <summary><span class="card-title">📋 ログ・補足情報</span></summary>
+      <div class="log-section-body">
+        <div class="card full">
+          <div class="card-title">今日の状況</div>
+          ${renderStatus(data.status)}
+        </div>
+        <div class="card">
+          <div class="card-title">次にCEOがやること</div>
+          ${renderActions(data.actions)}
+        </div>
+        <div class="card">
+          <div class="card-title">最新のAI提案</div>
+          ${renderProposal(data.proposal)}
+        </div>
+        <div class="card">
+          <div class="card-title">進捗バー</div>
+          ${renderProgress(data.progress, data.agents)}
+        </div>
+        <div class="card">
+          <div class="card-title">GitHub Open Issues</div>
+          ${renderGitHub(data.github_issues, data.github_enabled)}
+        </div>
+        ${data.memory_suggestions ? `
+        <div class="card full memory-banner">
+          <div class="card-title">メモリ見直し提案</div>
+          <div class="memory-notice">
+            💡 <strong>AIからの提案があります</strong> — 会社メモリの見直し候補が生成されました。
+            <span class="memory-hint">承認センタータブまたは outputs/memory_update_suggestions.md を確認してください。</span>
+          </div>
+        </div>` : ''}
+        ${renderProductsCard(data.products)}
+        ${renderProductIssueStatsCard(data.product_issue_stats)}
+      </div>
+    </details>
   `;
   document.getElementById('tabDashboard').innerHTML = html;
+  fetchCeoHome();
 }
 
 function renderLauncherCard(count) {
   const n = Number(count) || 0;
   const disabled = n === 0 ? 'disabled' : '';
   return `
-    <div class="card full launcher-card">
-      <div class="card-title">🚀 ワンクリック実装準備</div>
+    <div class="card full launcher-card card-accent-blue">
+      <div class="card-title">🔵 実装準備完了（ワンクリック実装準備）</div>
       <div class="launcher-notice">
         承認済みの実装アイテム <strong>${n}件</strong> から、Claude Code にそのまま貼り付けられる
         実装プロンプト（<code>outputs/claude_code_prompt.md</code>）を生成します。
@@ -373,18 +654,24 @@ function renderAutonomousFlowCard(flow) {
       <span class="action-num">#${esc(i.number)}</span>
       <span class="flow-issue-body">
         ${esc(i.title)}（担当: ${esc(i.assignee)}）
+        <span class="state-badge badge-purple">🟣 実装完了待ち</span>
         <span class="flow-product-tag">📦 ${esc(i.product)} <code>${esc(i.work_dir)}</code></span>
         ${i.product_warning ? `<span class="flow-product-warn">${esc(i.product_warning)}</span>` : ''}
       </span>
-      <button class="btn btn-complete" onclick="completeImplementation('${esc(i.approval_id)}', this)">✅ 実装完了</button>
+      <div class="flow-issue-btns">
+        <button class="btn btn-launch-one" onclick="startImplementationFor('${esc(i.approval_id)}', this)">🚀 このIssueを実装</button>
+        <button class="btn btn-complete" onclick="completeImplementation('${esc(i.approval_id)}', this)">✅ 実装完了</button>
+      </div>
     </li>
   `).join('');
   return `
-    <div class="card full flow-card">
-      <div class="card-title">🤖 実装準備完了</div>
+    <div class="card full flow-card card-accent-purple">
+      <div class="card-title">🟣 実装完了待ち</div>
       <div class="flow-notice">
         承認済みの実装アイテム <strong>${Number(flow.count)}件</strong> について、
-        Claude Code 向けの実装指示書が生成されました。実装が終わったら「✅ 実装完了」でこのリストから外してください。
+        Claude Code 向けの実装指示書が生成されました。
+        「🚀 このIssueを実装」を押すと、そのIssueだけを対象にした <code>claude_code_prompt.md</code> が生成されます。
+        実装が終わったら「✅ 実装完了」でこのリストから外してください。
       </div>
       <ul class="actions-list">${issueRows}</ul>
       <div class="pr-draft-notice">
@@ -393,6 +680,30 @@ function renderAutonomousFlowCard(flow) {
       </div>
     </div>
   `;
+}
+
+function startImplementationFor(approvalId, btnEl) {
+  if (!approvalId) return;
+  const original = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 準備中...'; }
+
+  fetch('/api/start_implementation', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({approval_ids: [approvalId]}),
+  })
+  .then(r => r.json().then(data => ({ status: r.status, data })))
+  .then(({ data }) => {
+    if (data.ok) {
+      alert(`✅ ${data.message}` + (data.opened ? '（ファイルを開きました）' : ''));
+    } else {
+      alert('⚠️ ' + data.message);
+    }
+  })
+  .catch(e => alert('エラー: ' + e))
+  .finally(() => {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
+  });
 }
 
 function completeImplementation(approvalId, btnEl) {
@@ -499,6 +810,18 @@ function typeLabel(type) {
   return { icon: '📋', label: type, cls: '' };
 }
 
+function renderConfidenceBlock(item) {
+  if (item.confidence === undefined || item.confidence === null) return '';
+  const confidence = Number(item.confidence);
+  const cls = confidence >= 70 ? 'confidence-high' : confidence >= 40 ? 'confidence-mid' : 'confidence-low';
+  return `
+    <div class="confidence-block ${cls}">
+      <div class="confidence-title">📊 Confidence: ${confidence}%</div>
+      <div class="confidence-reason">理由：${esc(item.confidence_reason || '')}</div>
+    </div>
+  `;
+}
+
 function renderAdvisorBlock(advisor) {
   if (!advisor) return '';
   const reasonHtml = esc(advisor.reason || '').replace(/\n/g, '<br>');
@@ -514,11 +837,45 @@ function renderAdvisorBlock(advisor) {
   `;
 }
 
+function renderHistorySection(historyId, icon, label, items, colorClass) {
+  const count = (items || []).length;
+  const rows = count === 0
+    ? `<div class="history-empty">該当するIssueはありません</div>`
+    : items.map(i => `
+        <div class="history-row">
+          <div class="history-row-head">
+            ${i.issue_number ? `<span class="history-issue-num">#${esc(i.issue_number)}</span>` : ''}
+            <span class="history-title">${esc(stripMarkdown(i.title || ''))}</span>
+          </div>
+          <div class="history-row-meta">
+            ${i.product ? `<span class="history-chip">📦 ${esc(i.product)}</span>` : ''}
+            <span class="history-chip">🕒 ${esc(i.timestamp || i.completed_at || '')}</span>
+            ${i.reason ? `<span class="history-chip history-reason">理由: ${esc(i.reason)}</span>` : ''}
+            ${i.github_url ? `<a class="history-link" href="${esc(i.github_url)}" target="_blank">GitHub Issue ＞</a>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+  return `
+    <details class="history-section ${colorClass}" data-history-id="${historyId}">
+      <summary>
+        <span class="history-summary-icon">${icon}</span>
+        <span class="history-summary-label">${label}</span>
+        <span class="history-summary-count">${count}</span>
+      </summary>
+      <div class="history-body">${rows}</div>
+    </details>
+  `;
+}
+
 function renderApprovals(data) {
   const pending   = data.pending  || [];
-  const approved  = data.approved_count || 0;
-  const rejected  = data.rejected_count || 0;
-  const completed = data.completed_count || 0;
+  // タイルの件数は履歴一覧（approved_items等）の件数と一致させる。
+  // approved_count等はディレクトリ内ファイル数の単純カウントのため、
+  // 過去データの不整合（旧形式ファイルの混入）があるとズレる可能性があるため。
+  const approved  = (data.approved_items  || []).length;
+  const rejected  = (data.rejected_items  || []).length;
+  const completed = (data.completed_items || []).length;
 
   // バッジ更新
   const badge = document.getElementById('pendingBadge');
@@ -531,18 +888,23 @@ function renderApprovals(data) {
         <span class="as-num warn">${pending.length}</span>
         <span class="as-label">承認待ち</span>
       </div>
-      <div class="approval-stat">
+      <div class="approval-stat approval-stat-clickable" onclick="toggleHistorySection('approved')">
         <span class="as-num ok">${approved}</span>
-        <span class="as-label">承認済み</span>
+        <span class="as-label">承認済み ＞</span>
       </div>
-      <div class="approval-stat">
+      <div class="approval-stat approval-stat-clickable" onclick="toggleHistorySection('rejected')">
         <span class="as-num muted">${rejected}</span>
-        <span class="as-label">却下済み</span>
+        <span class="as-label">却下済み ＞</span>
       </div>
-      <div class="approval-stat">
+      <div class="approval-stat approval-stat-clickable" onclick="toggleHistorySection('completed')">
         <span class="as-num accent">${completed}</span>
-        <span class="as-label">実装完了</span>
+        <span class="as-label">実装完了 ＞</span>
       </div>
+    </div>
+    <div class="history-sections">
+      ${renderHistorySection('approved', '🟢', '承認済み', data.approved_items, 'history-approved')}
+      ${renderHistorySection('rejected', '⚪', '却下済み', data.rejected_items, 'history-rejected')}
+      ${renderHistorySection('completed', '🔵', '実装完了', data.completed_items, 'history-completed')}
     </div>
   `;
 
@@ -554,18 +916,20 @@ function renderApprovals(data) {
       const t = typeLabel(item.type);
       const preview = (item.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       html += `
-        <div class="approval-card" id="ac-${esc(item.id)}">
+        <div class="approval-card card-accent-yellow" id="ac-${esc(item.id)}">
           <div class="ac-header">
             <div class="ac-meta">
               <span class="ac-icon">${t.icon}</span>
               <span class="ac-type ${t.cls}">${t.label}</span>
+              <span class="state-badge badge-yellow">🟡 承認待ち</span>
             </div>
             <div class="ac-btns">
-              <button class="btn btn-approve" onclick="doApprove('${esc(item.id)}')">✅ 承認</button>
-              <button class="btn btn-reject"  onclick="openRejectModal('${esc(item.id)}','${esc(item.title)}')">❌ 却下</button>
+              <button class="btn btn-approve" onclick="doApprove('${esc(item.id)}')">承認</button>
+              <button class="btn btn-reject"  onclick="openRejectModal('${esc(item.id)}','${esc(item.title)}')">却下</button>
             </div>
           </div>
           <div class="ac-title">${esc(item.title)}</div>
+          ${renderConfidenceBlock(item)}
           ${renderAdvisorBlock(item.advisor)}
           <details class="ac-preview" data-approval-id="${esc(item.id)}">
             <summary>内容を確認</summary>
@@ -580,10 +944,10 @@ function renderApprovals(data) {
   document.getElementById('approvalContent').innerHTML = html;
 }
 
-// 開いている <details data-approval-id> の id 一覧を返す（再描画前に呼ぶ）
+// 開いている <details data-approval-id> / <details data-history-id> の id 一覧を返す（再描画前に呼ぶ）
 function _getOpenApprovalDetails() {
   return Array.from(document.querySelectorAll('#approvalContent details[open]'))
-    .map(el => el.dataset.approvalId)
+    .map(el => el.dataset.approvalId || (el.dataset.historyId && `history:${el.dataset.historyId}`))
     .filter(Boolean);
 }
 
@@ -591,9 +955,23 @@ function _getOpenApprovalDetails() {
 function _restoreOpenApprovalDetails(openIds) {
   if (!openIds || openIds.length === 0) return;
   openIds.forEach(id => {
+    if (id.startsWith('history:')) {
+      const historyId = id.slice('history:'.length);
+      const el = document.querySelector(`#approvalContent details[data-history-id="${CSS.escape(historyId)}"]`);
+      if (el) el.open = true;
+      return;
+    }
     const el = document.querySelector(`#approvalContent details[data-approval-id="${CSS.escape(id)}"]`);
     if (el) el.open = true;
   });
+}
+
+// 承認済み／却下済み／実装完了の件数タイルをクリックしたときに、対応するアコーディオンを開閉する
+function toggleHistorySection(historyId) {
+  const el = document.querySelector(`details[data-history-id="${CSS.escape(historyId)}"]`);
+  if (!el) return;
+  el.open = !el.open;
+  if (el.open) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function fetchApprovals() {
@@ -607,6 +985,291 @@ function fetchApprovals() {
     .catch(e => {
       document.getElementById('approvalContent').innerHTML =
         `<div class="error-box">⚠️ 承認データの取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// プロジェクト管理（Quest93）
+// ────────────────────────────────
+
+const PROJECT_STATUS_BADGE = {
+  draft:     '<span class="state-badge badge-yellow">🟡 Draft</span>',
+  active:    '<span class="state-badge badge-green">🟢 Active</span>',
+  completed: '<span class="state-badge badge-blue">🔵 Completed</span>',
+  archived:  '<span class="state-badge badge-none">⬜ Archived</span>',
+};
+
+// 1プロジェクトぶんのNext Actionを決める（CEO Homeの優先順位ルールを
+// プロジェクト単位に縮小したもの）。
+function _projectNextAction(project, pendingReviewAssetTypes, hasPendingImplementation) {
+  if (project.status === 'archived' || project.status === 'completed') return '-';
+  if (pendingReviewAssetTypes.has(project.asset_type)) return `${project.asset_type} をレビューしてください。`;
+  if (hasPendingImplementation) return '実装待ちIssueを確認してください。';
+  if (project.status === 'active') return 'Execution Planを確認してください。';
+  return '-';
+}
+
+function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementation) {
+  const list = projects || [];
+  let html = '<div class="card-title">🗂️ Project一覧</div>';
+
+  if (list.length === 0) {
+    html += '<div class="ceo-brief-empty">登録済みのProjectはありません。上のフォームから作成してください。</div>';
+  } else {
+    html += `
+      <div class="table-scroll">
+      <table class="simple-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Name</th><th>Asset Type</th><th>Status</th>
+            <th>Created At</th><th>Next Action</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    list.forEach(p => {
+      const badge = PROJECT_STATUS_BADGE[p.status] || esc(p.status);
+      const nextAction = _projectNextAction(p, pendingReviewAssetTypes, hasPendingImplementation);
+      html += `
+        <tr>
+          <td>${esc(p.id)}</td>
+          <td>${esc(p.name)}</td>
+          <td>📦 ${esc(p.asset_type)}</td>
+          <td>${badge}</td>
+          <td>${esc(p.created_at || '-')}</td>
+          <td>${esc(nextAction)}</td>
+          <td>${p.status !== 'archived'
+            ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
+            : ''}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('projectListContent').innerHTML = html;
+}
+
+function fetchProjects() {
+  Promise.all([
+    fetch('/api/projects').then(r => r.json()),
+    fetch('/api/generated-assets').then(r => r.json()),
+    fetch('/api/dashboard/home').then(r => r.json()),
+  ])
+    .then(([projectsData, assetsData, homeData]) => {
+      const pendingReviewAssetTypes = new Set(
+        (assetsData.assets || []).filter(a => a.status === 'pending_review').map(a => a.asset_type)
+      );
+      const hasPendingImplementation = (homeData.pending_implementation || 0) > 0;
+      renderProjects(projectsData.projects, pendingReviewAssetTypes, hasPendingImplementation);
+    })
+    .catch(e => {
+      document.getElementById('projectListContent').innerHTML =
+        `<div class="error-box">⚠️ Projectデータの取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// Generated Assets（Dashboard v1試験運用版）
+// ────────────────────────────────
+
+function renderGeneratedAssets(assets) {
+  const list = assets || [];
+  let html = '<div class="card-title">🎨 Generated Assets</div>';
+
+  if (list.length === 0) {
+    html += '<div class="ceo-brief-empty">まだ生成されたAssetはありません。</div>';
+  } else {
+    html += `
+      <div class="table-scroll">
+      <table class="simple-table">
+        <thead>
+          <tr><th>Asset Type</th><th>Status</th><th>Files Count</th><th>Generated At</th><th>ZIP Path</th></tr>
+        </thead>
+        <tbody>
+    `;
+    list.forEach(a => {
+      html += `
+        <tr>
+          <td>${esc(a.asset_type)}</td>
+          <td>${esc(a.status)}</td>
+          <td>${Number(a.files_count || 0)} files</td>
+          <td>${esc(a.generated_at || '-')}</td>
+          <td>${a.zip_path ? `<code>${esc(a.zip_path)}</code>` : '-'}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('assetListContent').innerHTML = html;
+}
+
+function fetchGeneratedAssets() {
+  fetch('/api/generated-assets')
+    .then(r => r.json())
+    .then(data => renderGeneratedAssets(data.assets))
+    .catch(e => {
+      document.getElementById('assetListContent').innerHTML =
+        `<div class="error-box">⚠️ Generated Assetsの取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// Notifications（Dashboard v1試験運用版）
+// ────────────────────────────────
+
+const NOTIFICATION_LEVEL_BADGE = {
+  critical: '<span class="state-badge badge-yellow">🔴 critical</span>',
+  warning:  '<span class="state-badge badge-yellow">🟠 warning</span>',
+  info:     '<span class="state-badge badge-blue">🔵 info</span>',
+  success:  '<span class="state-badge badge-green">🟢 success</span>',
+};
+
+function renderNotifications(notifications) {
+  const list = notifications || [];
+  let html = '<div class="card-title">🔔 Notifications</div>';
+
+  if (list.length === 0) {
+    html += '<div class="ceo-brief-empty">まだ通知はありません。</div>';
+  } else {
+    html += `
+      <div class="table-scroll">
+      <table class="simple-table">
+        <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
+        <tbody>
+    `;
+    list.forEach(n => {
+      const badge = NOTIFICATION_LEVEL_BADGE[n.level] || esc(n.level);
+      html += `
+        <tr>
+          <td>${esc(n.timestamp)}</td>
+          <td>${badge}</td>
+          <td class="notif-message-cell">${esc(n.message)}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('notificationListContent').innerHTML = html;
+}
+
+function fetchNotifications() {
+  fetch('/api/notifications')
+    .then(r => r.json())
+    .then(data => renderNotifications(data.notifications))
+    .catch(e => {
+      document.getElementById('notificationListContent').innerHTML =
+        `<div class="error-box">⚠️ Notificationsの取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// CEO Home（Dashboard v1試験運用版・ダッシュボードタブ最上部）
+// ────────────────────────────────
+
+function renderCeoHomeCard(home) {
+  if (!home) return '';
+  return `
+    <div class="card full ceo-summary-card">
+      <div class="card-title">🏠 CEO Home</div>
+      <div class="ceo-summary-grid">
+        <div class="ceo-summary-tile tile-blue" onclick="switchTab('projects')" title="プロジェクトを開く">
+          <div class="ceo-summary-tile-num">${Number(home.active_projects || 0)}</div>
+          <div class="ceo-summary-tile-label">Active Projects</div>
+        </div>
+        <div class="ceo-summary-tile tile-yellow" onclick="switchTab('assets')" title="Generated Assetsを開く">
+          <div class="ceo-summary-tile-num">${Number(home.pending_reviews || 0)}</div>
+          <div class="ceo-summary-tile-label">Pending Reviews</div>
+        </div>
+        <div class="ceo-summary-tile tile-purple" onclick="switchTab('notifications')" title="Notificationsを開く">
+          <div class="ceo-summary-tile-num">${Number(home.notifications || 0)}</div>
+          <div class="ceo-summary-tile-label">Notifications</div>
+        </div>
+        <div class="ceo-summary-tile tile-green" onclick="switchTab('approvals')" title="承認センターを開く">
+          <div class="ceo-summary-tile-num">${Number(home.pending_implementation || 0)}</div>
+          <div class="ceo-summary-tile-label">Pending Implementation</div>
+        </div>
+      </div>
+      <div class="ceo-brief-block-title">▶ Next Action</div>
+      <div class="ceo-brief-message">🌱 ${esc(home.next_action || '')}</div>
+    </div>
+  `;
+}
+
+function fetchCeoHome() {
+  fetch('/api/dashboard/home')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('ceoHomeContainer');
+      if (el) el.innerHTML = renderCeoHomeCard(data);
+    })
+    .catch(() => {
+      const el = document.getElementById('ceoHomeContainer');
+      if (el) el.innerHTML = '<div class="card full error-box">⚠️ CEO Homeの取得に失敗しました</div>';
+    });
+}
+
+function createProject() {
+  const btn = document.getElementById('createProjectBtn');
+  const name = document.getElementById('newProjectName').value.trim();
+  const assetType = document.getElementById('newProjectAssetType').value;
+  const vision = document.getElementById('newProjectVision').value.trim();
+  const metricsRaw = document.getElementById('newProjectMetrics').value;
+
+  if (!name) {
+    alert('Project Nameを入力してください');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 作成中...';
+
+  fetch('/api/projects/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name, asset_type: assetType, vision, success_metrics: metricsRaw,
+    }),
+  })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ data }) => {
+      if (data.ok) {
+        document.getElementById('newProjectName').value = '';
+        document.getElementById('newProjectVision').value = '';
+        document.getElementById('newProjectMetrics').value = '';
+        fetchProjects();
+      } else {
+        alert('⚠️ ' + (data.error || 'Projectの作成に失敗しました'));
+      }
+    })
+    .catch(e => alert('エラー: ' + e))
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Create';
+    });
+}
+
+function archiveProject(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 処理中...'; }
+  fetch('/api/projects/archive', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId }),
+  })
+    .then(r => r.json())
+    .then(res => {
+      if (res.ok) {
+        fetchProjects();
+      } else {
+        alert('Archiveに失敗しました: ' + (res.error || ''));
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Archive'; }
+      }
+    })
+    .catch(e => {
+      alert('エラー: ' + e);
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Archive'; }
     });
 }
 
@@ -626,10 +1289,13 @@ function toggleAutoRefresh() {
   btn.classList.toggle('is-off', !autoRefreshEnabled);
 }
 
+let _lastDashboardData = {};
+
 function fetchDashboard() {
   fetch('/api/data')
     .then(r => r.json())
     .then(data => {
+      _lastDashboardData = data;
       renderDashboard(data);
       document.getElementById('statusDot').style.background = 'var(--success)';
       document.getElementById('statusDot').style.boxShadow = '0 0 6px var(--success)';
