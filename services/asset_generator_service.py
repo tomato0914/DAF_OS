@@ -98,6 +98,12 @@ _PHRASES = [
     "また明日", "なるほど", "まかせて", "だいじょうぶ", "よし！",
 ]
 
+# Quest94 v2：スタンプごとのバリエーション（画像生成APIは使わず、Pillowのみで
+# 表情・文字レイアウト・装飾を組み合わせて視覚的な差を出す）。
+_EXPRESSIONS = ["normal", "smile", "sleepy", "surprised", "worried", "cheer", "sorry", "joy"]
+_LAYOUTS = ["bottom_center", "top_center", "speech_bubble", "diagonal", "large_text", "two_line"]
+_DECORATIONS = ["heart", "star", "note", "teardrop", "sparkle", "bg_circle", "pawprint"]
+
 
 def _output_dir(outputs_dir: Path) -> Path:
     return outputs_dir / _GENERATED_ASSETS_DIR_NAME / _ASSET_TYPE
@@ -119,8 +125,11 @@ def _load_font(size: int):
     return ImageFont.load_default()
 
 
-def _draw_character(draw, cx: float, cy: float, radius: float) -> None:
-    """簡単なキャラクター風の丸アイコン（犬っぽい耳付き）を描画する。"""
+def _draw_character(draw, cx: float, cy: float, radius: float, expression: str = "normal") -> None:
+    """
+    犬っぽいキャラクター（耳付きの丸い頭）を描画する。
+    Quest94 v2：expression（表情パターン）に応じて目・口を_draw_face()へ委譲する。
+    """
     body_fill = (255, 224, 178, 255)
     outline = (120, 90, 60, 255)
 
@@ -141,42 +150,290 @@ def _draw_character(draw, cx: float, cy: float, radius: float) -> None:
     draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
                  fill=body_fill, outline=outline, width=4)
 
-    # 目
+    _draw_face(draw, cx, cy, radius, expression)
+
+
+def _draw_face(draw, cx: float, cy: float, radius: float, expression: str) -> None:
+    """
+    Quest94 v2：表情パターン（_EXPRESSIONS）ごとに目・口の描き方を変える。
+    未知のexpressionが渡された場合はnormalにフォールバックする。
+    """
+    dark = (60, 40, 30, 255)
+    outline = (120, 90, 60, 255)
     eye_r = max(radius * 0.08, 4)
     eye_dx = radius * 0.42
     eye_dy = radius * 0.15
-    draw.ellipse([cx - eye_dx - eye_r, cy - eye_dy - eye_r, cx - eye_dx + eye_r, cy - eye_dy + eye_r],
-                 fill=(60, 40, 30, 255))
-    draw.ellipse([cx + eye_dx - eye_r, cy - eye_dy - eye_r, cx + eye_dx + eye_r, cy - eye_dy + eye_r],
-                 fill=(60, 40, 30, 255))
-
-    # 鼻・口（簡単な弧）
+    lx, ly = cx - eye_dx, cy - eye_dy
+    rx, ry = cx + eye_dx, cy - eye_dy
+    mouth_cx, mouth_cy = cx, cy + radius * 0.1
     mouth_r = radius * 0.35
-    draw.arc(
-        [cx - mouth_r, cy + radius * 0.1, cx + mouth_r, cy + radius * 0.1 + mouth_r],
-        start=20, end=160, fill=outline, width=max(int(radius * 0.05), 2),
+    lw = max(int(radius * 0.05), 2)
+
+    if expression == "sleepy":
+        for ex in (lx, rx):
+            draw.line([ex - eye_r * 1.4, ly, ex + eye_r * 1.4, ly], fill=dark, width=lw)
+        draw.arc([mouth_cx - mouth_r * 0.5, mouth_cy, mouth_cx + mouth_r * 0.5, mouth_cy + mouth_r * 0.5],
+                  start=20, end=160, fill=outline, width=lw)
+    elif expression == "surprised":
+        big_r = eye_r * 1.6
+        draw.ellipse([lx - big_r, ly - big_r, lx + big_r, ly + big_r], fill=dark)
+        draw.ellipse([rx - big_r, ly - big_r, rx + big_r, ly + big_r], fill=dark)
+        o_r = mouth_r * 0.35
+        draw.ellipse(
+            [mouth_cx - o_r, mouth_cy - o_r + mouth_r * 0.2, mouth_cx + o_r, mouth_cy + o_r + mouth_r * 0.2],
+            outline=outline, width=lw,
+        )
+    elif expression == "smile":
+        for ex in (lx, rx):
+            draw.arc([ex - eye_r * 1.3, ly - eye_r, ex + eye_r * 1.3, ly + eye_r * 1.3],
+                      start=200, end=340, fill=dark, width=lw)
+        draw.arc([mouth_cx - mouth_r, mouth_cy, mouth_cx + mouth_r, mouth_cy + mouth_r],
+                  start=10, end=170, fill=outline, width=lw + 1)
+    elif expression == "worried":
+        for ex, sign in ((lx, -1), (rx, 1)):
+            draw.ellipse([ex - eye_r, ly - eye_r, ex + eye_r, ly + eye_r], fill=dark)
+            draw.line([ex - eye_r * 1.5, ly - eye_r * 2.2, ex + sign * eye_r * 0.5, ly - eye_r * 3.2],
+                       fill=outline, width=lw)
+        draw.line([mouth_cx - mouth_r * 0.4, mouth_cy + mouth_r * 0.3,
+                    mouth_cx + mouth_r * 0.4, mouth_cy + mouth_r * 0.1], fill=outline, width=lw)
+    elif expression == "cheer":
+        for ex in (lx, rx):
+            draw.arc([ex - eye_r * 1.3, ly - eye_r, ex + eye_r * 1.3, ly + eye_r * 1.3],
+                      start=200, end=340, fill=dark, width=lw)
+        draw.pieslice([mouth_cx - mouth_r * 0.8, mouth_cy, mouth_cx + mouth_r * 0.8, mouth_cy + mouth_r],
+                       start=10, end=170, fill=(180, 60, 60, 255))
+    elif expression == "sorry":
+        for ex in (lx, rx):
+            draw.line([ex - eye_r, ly - eye_r, ex + eye_r, ly + eye_r], fill=dark, width=lw)
+            draw.line([ex - eye_r, ly + eye_r, ex + eye_r, ly - eye_r], fill=dark, width=lw)
+        draw.line([mouth_cx - mouth_r * 0.4, mouth_cy + mouth_r * 0.2,
+                    mouth_cx + mouth_r * 0.4, mouth_cy - mouth_r * 0.05], fill=outline, width=lw)
+    elif expression == "joy":
+        for ex in (lx, rx):
+            draw.arc([ex - eye_r * 1.4, ly - eye_r * 1.4, ex + eye_r * 1.4, ly + eye_r * 0.6],
+                      start=190, end=350, fill=dark, width=lw + 1)
+        draw.arc([mouth_cx - mouth_r * 1.1, mouth_cy - mouth_r * 0.1, mouth_cx + mouth_r * 1.1, mouth_cy + mouth_r * 1.1],
+                  start=10, end=170, fill=outline, width=lw + 1)
+    else:  # normal（未知のexpressionもここへフォールバック）
+        draw.ellipse([lx - eye_r, ly - eye_r, lx + eye_r, ly + eye_r], fill=dark)
+        draw.ellipse([rx - eye_r, ly - eye_r, rx + eye_r, ly + eye_r], fill=dark)
+        draw.arc([mouth_cx - mouth_r, mouth_cy, mouth_cx + mouth_r, mouth_cy + mouth_r],
+                  start=20, end=160, fill=outline, width=lw)
+
+
+# ──────────────────────────────────────────
+# Quest94 v2：装飾（_DECORATIONS）
+# ──────────────────────────────────────────
+
+_DECORATION_COLORS = {
+    "heart": (230, 70, 90, 255),
+    "star": (250, 200, 60, 255),
+    "note": (90, 90, 200, 255),
+    "teardrop": (100, 170, 230, 255),
+    "sparkle": (250, 170, 40, 255),
+    "bg_circle": (255, 220, 180, 110),
+    "pawprint": (150, 110, 80, 255),
+}
+
+
+def _draw_star(draw, cx: float, cy: float, r: float, fill) -> None:
+    import math
+    points = []
+    for i in range(10):
+        angle = math.pi / 5 * i - math.pi / 2
+        rad = r if i % 2 == 0 else r * 0.45
+        points.append((cx + rad * math.cos(angle), cy + rad * math.sin(angle)))
+    draw.polygon(points, fill=fill)
+
+
+def _draw_heart(draw, cx: float, cy: float, r: float, fill) -> None:
+    draw.ellipse([cx - r, cy - r * 0.6, cx, cy + r * 0.4], fill=fill)
+    draw.ellipse([cx, cy - r * 0.6, cx + r, cy + r * 0.4], fill=fill)
+    draw.polygon([(cx - r, cy), (cx + r, cy), (cx, cy + r * 1.3)], fill=fill)
+
+
+def _draw_note(draw, cx: float, cy: float, r: float, fill) -> None:
+    draw.ellipse([cx - r * 0.5, cy, cx + r * 0.5, cy + r], fill=fill)
+    draw.line([cx + r * 0.45, cy + r * 0.5, cx + r * 0.45, cy - r * 1.2], fill=fill, width=max(int(r * 0.18), 2))
+    draw.line([cx + r * 0.45, cy - r * 1.2, cx + r * 0.9, cy - r], fill=fill, width=max(int(r * 0.18), 2))
+
+
+def _draw_teardrop(draw, cx: float, cy: float, r: float, fill) -> None:
+    draw.ellipse([cx - r * 0.6, cy, cx + r * 0.6, cy + r * 1.2], fill=fill)
+    draw.polygon([(cx - r * 0.6, cy + r * 0.4), (cx + r * 0.6, cy + r * 0.4), (cx, cy - r)], fill=fill)
+
+
+def _draw_sparkle(draw, cx: float, cy: float, r: float, fill) -> None:
+    draw.line([cx - r, cy, cx + r, cy], fill=fill, width=max(int(r * 0.25), 2))
+    draw.line([cx, cy - r, cx, cy + r], fill=fill, width=max(int(r * 0.25), 2))
+    draw.line([cx - r * 0.7, cy - r * 0.7, cx + r * 0.7, cy + r * 0.7], fill=fill, width=max(int(r * 0.15), 1))
+    draw.line([cx - r * 0.7, cy + r * 0.7, cx + r * 0.7, cy - r * 0.7], fill=fill, width=max(int(r * 0.15), 1))
+
+
+def _draw_pawprint(draw, cx: float, cy: float, r: float, fill) -> None:
+    draw.ellipse([cx - r * 0.5, cy - r * 0.3, cx + r * 0.5, cy + r * 0.7], fill=fill)
+    for dx, dy in ((-0.5, -0.7), (-0.15, -0.95), (0.2, -0.95), (0.55, -0.7)):
+        pr = r * 0.22
+        draw.ellipse([cx + dx * r - pr, cy + dy * r - pr, cx + dx * r + pr, cy + dy * r + pr], fill=fill)
+
+
+def _draw_bg_circle(draw, w: int, h: int) -> None:
+    """装飾"bg_circle"（背景丸）。キャラクターを描く前に呼ぶ。"""
+    color = _DECORATION_COLORS["bg_circle"]
+    r = min(w, h) * 0.46
+    draw.ellipse([w / 2 - r, h * 0.42 - r, w / 2 + r, h * 0.42 + r], fill=color)
+
+
+def _draw_decorations(draw, w: int, h: int, decoration: str) -> None:
+    """
+    Quest94 v2：スタンプ左上・右上に小さな装飾アイコンを描画する
+    （bg_circleはキャラクター描画前に_draw_bg_circle()で別途処理済みのため、ここでは何もしない）。
+    """
+    if decoration == "bg_circle" or decoration not in _DECORATION_COLORS:
+        return
+    color = _DECORATION_COLORS[decoration]
+    r = min(w, h) * 0.07
+    positions = [(w * 0.14, h * 0.16), (w * 0.86, h * 0.16)]
+    for px, py in positions:
+        if decoration == "heart":
+            _draw_heart(draw, px, py, r, color)
+        elif decoration == "star":
+            _draw_star(draw, px, py, r, color)
+        elif decoration == "note":
+            _draw_note(draw, px, py, r, color)
+        elif decoration == "teardrop":
+            _draw_teardrop(draw, px, py, r, color)
+        elif decoration == "sparkle":
+            _draw_sparkle(draw, px, py, r, color)
+        elif decoration == "pawprint":
+            _draw_pawprint(draw, px, py, r, color)
+
+
+# ──────────────────────────────────────────
+# Quest94 v2：文字レイアウト（_LAYOUTS）
+# ──────────────────────────────────────────
+
+def _wrap_phrase(phrase: str, max_chars: int = 6) -> list[str]:
+    """
+    長いフレーズを自動で2行に折り返す。日本語はスペース区切りが無いため、
+    文字数がmax_charsを超える場合は中央付近で2分割する。
+    """
+    if len(phrase) <= max_chars:
+        return [phrase]
+    mid = (len(phrase) + 1) // 2
+    return [phrase[:mid], phrase[mid:]]
+
+
+def _measure_lines(draw, lines: list[str], font) -> list[tuple]:
+    sizes = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        sizes.append((line, bbox[2] - bbox[0], bbox[3] - bbox[1], bbox))
+    return sizes
+
+
+def _draw_lines(draw, sizes: list[tuple], font, cx: float, start_y: float) -> None:
+    """中央揃えで複数行のフレーズを白フチ＋濃い茶色で描画する（既存のスタンプ文字スタイルを踏襲）。"""
+    y = start_y
+    for line, tw, th, bbox in sizes:
+        x = cx - tw / 2 - bbox[0]
+        ty = y - bbox[1]
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+            draw.text((x + dx, ty + dy), line, font=font, fill=(255, 255, 255, 255))
+        draw.text((x, ty), line, font=font, fill=(50, 35, 25, 255))
+        y += th + 6
+
+
+def _draw_speech_bubble(draw, sizes: list[tuple], font, w: int, h: int) -> None:
+    """layout="speech_bubble"：頭上に吹き出し風の枠を描き、その中にフレーズを入れる。"""
+    max_tw = max(tw for _, tw, _, _ in sizes)
+    total_th = sum(th for _, _, th, _ in sizes) + (len(sizes) - 1) * 6
+    pad_x, pad_y = 14, 10
+    bubble_w = max_tw + pad_x * 2
+    bubble_h = total_th + pad_y * 2
+    bx0 = w / 2 - bubble_w / 2
+    by0 = h * 0.05
+    bx1 = bx0 + bubble_w
+    by1 = by0 + bubble_h
+
+    draw.rounded_rectangle([bx0, by0, bx1, by1], radius=12,
+                            fill=(255, 255, 255, 235), outline=(120, 90, 60, 255), width=3)
+    draw.polygon(
+        [(w / 2 - 8, by1 - 2), (w / 2 + 8, by1 - 2), (w / 2, by1 + 14)],
+        fill=(255, 255, 255, 235), outline=(120, 90, 60, 255),
     )
+    _draw_lines(draw, sizes, font, w / 2, by0 + pad_y)
 
 
-def _render_stamp(phrase: str) -> "Image.Image":
+def _draw_diagonal_text(img, sizes: list[tuple], font, w: int, h: int) -> None:
+    """layout="diagonal"：フレーズを別レイヤーに描いてから回転させ、スタンプへ貼り付ける。"""
+    from PIL import Image as PILImage, ImageDraw as PILImageDraw
+
+    text = "\n".join(line for line, _, _, _ in sizes)
+    probe = PILImageDraw.Draw(PILImage.new("RGBA", (10, 10)))
+    bbox = probe.multiline_textbbox((0, 0), text, font=font, align="center", spacing=6)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    pad = 12
+    layer = PILImage.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
+    layer_draw = PILImageDraw.Draw(layer)
+    x = pad - bbox[0]
+    y = pad - bbox[1]
+    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+        layer_draw.multiline_text((x + dx, y + dy), text, font=font, fill=(255, 255, 255, 255), align="center", spacing=6)
+    layer_draw.multiline_text((x, y), text, font=font, fill=(50, 35, 25, 255), align="center", spacing=6)
+
+    rotated = layer.rotate(-14, expand=True, resample=PILImage.BICUBIC)
+    px = int(w / 2 - rotated.width / 2)
+    py = int(h - rotated.height - 18)
+    img.paste(rotated, (px, py), rotated)
+
+
+def _render_stamp(phrase: str, index: int) -> "Image.Image":
+    """
+    Quest94 v2：40枚が同じ画像の使い回しに見えないよう、indexから決定的に
+    表情（_EXPRESSIONS）・文字レイアウト（_LAYOUTS）・装飾（_DECORATIONS）を
+    選び、組み合わせて1枚のスタンプを描画する。周期が異なる（8・6・7）ため、
+    40枚の範囲では同じ組み合わせがほぼ重複しない。
+    """
     from PIL import Image, ImageDraw
+
+    expression = _EXPRESSIONS[index % len(_EXPRESSIONS)]
+    layout = _LAYOUTS[index % len(_LAYOUTS)]
+    decoration = _DECORATIONS[index % len(_DECORATIONS)]
 
     img = Image.new("RGBA", _STAMP_SIZE, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     w, h = _STAMP_SIZE
     cx, cy, r = w / 2, h * 0.42, min(w, h) * 0.32
 
-    _draw_character(draw, cx, cy, r)
+    if decoration == "bg_circle":
+        _draw_bg_circle(draw, w, h)
 
-    font = _load_font(30)
-    bbox = draw.textbbox((0, 0), phrase, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    tx = (w - tw) / 2 - bbox[0]
-    ty = h - th - 28 - bbox[1]
+    _draw_character(draw, cx, cy, r, expression=expression)
+    _draw_decorations(draw, w, h, decoration)
 
-    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
-        draw.text((tx + dx, ty + dy), phrase, font=font, fill=(255, 255, 255, 255))
-    draw.text((tx, ty), phrase, font=font, fill=(50, 35, 25, 255))
+    if layout == "large_text":
+        font = _load_font(38)
+        lines = _wrap_phrase(phrase, max_chars=8)
+    elif layout == "two_line":
+        font = _load_font(26)
+        lines = _wrap_phrase(phrase, max_chars=3)
+    else:
+        font = _load_font(28)
+        lines = _wrap_phrase(phrase, max_chars=6)
+
+    sizes = _measure_lines(draw, lines, font)
+
+    if layout == "speech_bubble":
+        _draw_speech_bubble(draw, sizes, font, w, h)
+    elif layout == "diagonal":
+        _draw_diagonal_text(img, sizes, font, w, h)
+    elif layout == "top_center":
+        _draw_lines(draw, sizes, font, w / 2, h * 0.06)
+    else:  # bottom_center / large_text / two_line
+        total_h = sum(th for _, _, th, _ in sizes) + (len(sizes) - 1) * 6
+        _draw_lines(draw, sizes, font, w / 2, h - total_h - 24)
 
     return img
 
@@ -257,11 +514,11 @@ def generate_assets(outputs_dir: Path | None = None) -> dict:
         ]
         (target_dir / "prompts.md").write_text("\n\n".join(prompt_blocks) + "\n", encoding="utf-8")
 
-        # スタンプ画像（仮画像・Pillow生成）
+        # スタンプ画像（仮画像・Pillow生成。Quest94 v2：表情・レイアウト・装飾のバリエーション付き）
         stamp_filenames = []
         for i, phrase in enumerate(_PHRASES, start=1):
             filename = f"stamp_{i:02d}.png"
-            img = _render_stamp(phrase)
+            img = _render_stamp(phrase, i - 1)
             img.save(target_dir / filename)
             stamp_filenames.append(filename)
 
@@ -426,6 +683,57 @@ def list_generated_assets(outputs_dir: Path | None = None) -> list[dict]:
     except Exception as e:
         print(f"[警告] Generated Assetsの取得に失敗しました：{e}")
         return []
+
+
+def get_line_sticker_detail(outputs_dir: Path | None = None) -> dict:
+    """
+    Quest94 v2：Dashboardの「LINEスタンプ生成結果」セクション向けに、
+    outputs/generated_assets/line_sticker/ の内容を構造化データで返す
+    （フォルダを開かなくてもmetadata・phrases・スタンプ一覧・zip有無を
+    確認できるようにするため）。
+
+    戻り値: {"exists": bool, "output_dir": str, "status": str,
+             "metadata_text": str, "phrases_text": str,
+             "stamp_files": list[str], "main_exists": bool,
+             "tab_exists": bool, "zip_exists": bool}
+    未生成・読み込み失敗のいずれでも例外を投げず、{"exists": False}を返す。
+    """
+    try:
+        base = outputs_dir or _OUTPUTS_DIR
+        target_dir = _output_dir(base)
+        metadata_path = target_dir / "metadata.md"
+        if not target_dir.exists() or not metadata_path.exists():
+            return {"exists": False}
+
+        try:
+            metadata_text = metadata_path.read_text(encoding="utf-8")
+        except Exception:
+            metadata_text = ""
+
+        phrases_text = ""
+        phrases_path = target_dir / "phrases.md"
+        if phrases_path.exists():
+            try:
+                phrases_text = phrases_path.read_text(encoding="utf-8")
+            except Exception:
+                phrases_text = ""
+
+        stamp_files = sorted(f.name for f in target_dir.glob("stamp_*.png") if f.is_file())
+
+        return {
+            "exists": True,
+            "output_dir": str(target_dir),
+            "status": _extract_metadata_status(metadata_text) or "unknown",
+            "metadata_text": metadata_text,
+            "phrases_text": phrases_text,
+            "stamp_files": stamp_files,
+            "main_exists": (target_dir / "main.png").exists(),
+            "tab_exists": (target_dir / "tab.png").exists(),
+            "zip_exists": (target_dir / "stickers.zip").exists(),
+        }
+    except Exception as e:
+        print(f"[警告] LINE Sticker詳細の取得に失敗しました：{e}")
+        return {"exists": False, "error": str(e)}
 
 
 if __name__ == "__main__":

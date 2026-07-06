@@ -1405,3 +1405,68 @@ body {
 }
 .simple-table code { font-size: 0.78rem; }
 .simple-table .notif-message-cell { white-space: normal; min-width: 200px; }
+
+/* ─── LINEスタンプ生成結果（Quest94 v2） ─── */
+.sticker-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  font-size: 0.85rem;
+  margin: 10px 0;
+}
+.sticker-summary code { font-size: 0.78rem; word-break: break-all; }
+
+.sticker-icons {
+  display: flex;
+  gap: 16px;
+  margin: 14px 0;
+}
+.sticker-icon-box {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.sticker-icon-box img {
+  display: block;
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  margin-bottom: 4px;
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.sticker-thumb {
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.sticker-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 370 / 320;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  margin-bottom: 2px;
+}
+.sticker-thumb-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sticker-metadata pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.78rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}

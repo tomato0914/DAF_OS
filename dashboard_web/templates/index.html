@@ -87,6 +87,11 @@
     <div class="card-title">🎨 Generated Assets</div>
     <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
   </div>
+  <!-- LINEスタンプ生成結果（Quest94 v2）：フォルダを開かなくても成果物を確認できるようにする -->
+  <div class="card full" id="lineStickerDetailContent">
+    <div class="card-title">🐶 LINEスタンプ生成結果</div>
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
 </main>
 
 <!-- Notificationsタブ（Dashboard v1試験運用版） -->
@@ -131,7 +136,7 @@ function switchTab(tab) {
   if (activeBtn) activeBtn.classList.add('active');
   if (tab === 'approvals') fetchApprovals();
   if (tab === 'projects') fetchProjects();
-  if (tab === 'assets') fetchGeneratedAssets();
+  if (tab === 'assets') { fetchGeneratedAssets(); fetchLineStickerDetail(); }
   if (tab === 'notifications') fetchNotifications();
 }
 
@@ -1118,6 +1123,72 @@ function fetchGeneratedAssets() {
     .catch(e => {
       document.getElementById('assetListContent').innerHTML =
         `<div class="error-box">⚠️ Generated Assetsの取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// LINEスタンプ生成結果（Quest94 v2）：フォルダを開かなくても
+// 40枚のサムネイル・main/tab・ZIP・metadataをDashboard上で確認できるようにする
+// ────────────────────────────────
+
+function renderLineStickerDetail(data) {
+  let html = '<div class="card-title">🐶 LINEスタンプ生成結果</div>';
+
+  if (!data || !data.exists) {
+    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「Generate Assets」から生成してください。</div>';
+    document.getElementById('lineStickerDetailContent').innerHTML = html;
+    return;
+  }
+
+  const baseUrl = '/generated-assets/line-sticker/';
+
+  html += `
+    <div class="sticker-summary">
+      <div><strong>Status:</strong> ${esc(data.status)}</div>
+      <div><strong>Output Dir:</strong> <code>${esc(data.output_dir)}</code></div>
+    </div>
+  `;
+
+  if (data.zip_exists) {
+    html += `<a class="btn btn-approve" href="${baseUrl}stickers.zip" download>⬇ stickers.zip をダウンロード</a>`;
+  }
+
+  html += '<div class="sticker-icons">';
+  if (data.main_exists) {
+    html += `<div class="sticker-icon-box"><img src="${baseUrl}main.png" alt="main.png"><div>main.png</div></div>`;
+  }
+  if (data.tab_exists) {
+    html += `<div class="sticker-icon-box"><img src="${baseUrl}tab.png" alt="tab.png"><div>tab.png</div></div>`;
+  }
+  html += '</div>';
+
+  const stampFiles = data.stamp_files || [];
+  html += `<div class="card-title" style="font-size:0.85rem;margin-top:16px">スタンプ一覧（${stampFiles.length}枚）</div>`;
+  html += '<div class="sticker-grid">';
+  stampFiles.forEach(f => {
+    html += `<div class="sticker-thumb"><img src="${baseUrl}${encodeURIComponent(f)}" alt="${esc(f)}" loading="lazy"><div class="sticker-thumb-label">${esc(f)}</div></div>`;
+  });
+  html += '</div>';
+
+  if (data.metadata_text) {
+    html += `
+      <details class="log-section sticker-metadata">
+        <summary><div class="card-title">metadata.md を表示</div></summary>
+        <pre>${esc(data.metadata_text)}</pre>
+      </details>
+    `;
+  }
+
+  document.getElementById('lineStickerDetailContent').innerHTML = html;
+}
+
+function fetchLineStickerDetail() {
+  fetch('/api/generated-assets/line-sticker')
+    .then(r => r.json())
+    .then(data => renderLineStickerDetail(data))
+    .catch(e => {
+      document.getElementById('lineStickerDetailContent').innerHTML =
+        `<div class="error-box">⚠️ LINEスタンプ生成結果の取得に失敗しました: ${esc(String(e))}</div>`;
     });
 }
 

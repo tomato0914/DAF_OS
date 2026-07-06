@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory, abort
 
 # services/ を import パスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -604,6 +604,44 @@ def api_generated_assets():
         return jsonify({"assets": list_generated_assets(outputs_dir=OUTPUTS_DIR)})
     except Exception as e:
         return jsonify({"assets": [], "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# LINEスタンプ生成結果（Quest94 v2）
+# フォルダを開かなくてもDashboard上で40枚のスタンプ・main/tab・zip・metadataを
+# 確認できるようにするためのAPI。
+# ──────────────────────────────────────────
+
+_LINE_STICKER_DIR = OUTPUTS_DIR / "generated_assets" / "line_sticker"
+_LINE_STICKER_ALLOWED_EXT = {".png", ".zip", ".md"}
+
+
+@app.route("/api/generated-assets/line-sticker")
+def api_generated_assets_line_sticker():
+    """
+    outputs/generated_assets/line_sticker/ の内容
+    （metadata.md・phrases.md・スタンプ画像一覧・main/tab/zip有無）を返す。
+    """
+    try:
+        from services.asset_generator_service import get_line_sticker_detail
+        return jsonify(get_line_sticker_detail(outputs_dir=OUTPUTS_DIR))
+    except Exception as e:
+        return jsonify({"exists": False, "error": str(e)}), 500
+
+
+@app.route("/generated-assets/line-sticker/<path:filename>")
+def serve_line_sticker_file(filename):
+    """
+    outputs/generated_assets/line_sticker/ 配下のファイル（スタンプ画像・
+    main.png・tab.png・stickers.zip）を返す。Dashboardのサムネイル表示・
+    ZIPダウンロードから参照される。ディレクトリトラバーサル対策は
+    Flaskのsend_from_directory（パス正規化・親ディレクトリ脱出防止）に
+    委ね、許可された拡張子（png/zip/md）以外は404にする。
+    """
+    ext = Path(filename).suffix.lower()
+    if ext not in _LINE_STICKER_ALLOWED_EXT:
+        abort(404)
+    return send_from_directory(_LINE_STICKER_DIR, filename)
 
 
 @app.route("/api/notifications")
