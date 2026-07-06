@@ -569,6 +569,26 @@ def api_projects_archive():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/projects/generate-assets", methods=["POST"])
+def api_projects_generate_assets():
+    """
+    Quest94：指定Projectを起点にExecution Plan登録→Asset生成→
+    Notification更新まで進める（Projectsタブの「Generate Assets」ボタン
+    から呼ばれる）。v1ではasset_typeがline_stickerのProjectのみ対応する。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        from services.project_service import generate_project_assets
+        result = generate_project_assets(project_id, projects_dir=PROJECTS_DIR, outputs_dir=OUTPUTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。

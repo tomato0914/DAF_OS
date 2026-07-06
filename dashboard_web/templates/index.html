@@ -1030,6 +1030,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
     list.forEach(p => {
       const badge = PROJECT_STATUS_BADGE[p.status] || esc(p.status);
       const nextAction = _projectNextAction(p, pendingReviewAssetTypes, hasPendingImplementation);
+      const canGenerateAssets = p.asset_type === 'line_sticker' && p.status === 'active';
       html += `
         <tr>
           <td>${esc(p.id)}</td>
@@ -1038,9 +1039,14 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
           <td>${badge}</td>
           <td>${esc(p.created_at || '-')}</td>
           <td>${esc(nextAction)}</td>
-          <td>${p.status !== 'archived'
-            ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
-            : ''}</td>
+          <td>
+            ${canGenerateAssets
+              ? `<button class="btn btn-approve" onclick="generateProjectAssets('${esc(p.id)}', this)">Generate Assets</button>`
+              : ''}
+            ${p.status !== 'archived'
+              ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
+              : ''}
+          </td>
         </tr>
       `;
     });
@@ -1270,6 +1276,31 @@ function archiveProject(projectId, btnEl) {
     .catch(e => {
       alert('エラー: ' + e);
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Archive'; }
+    });
+}
+
+// Quest94: Project起点でExecution Plan登録→Asset生成→Notification更新まで進める
+function generateProjectAssets(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 生成中...'; }
+  fetch('/api/projects/generate-assets', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId }),
+  })
+    .then(r => r.json())
+    .then(res => {
+      if (res.ok && res.status === 'skipped_existing') {
+        alert('既にレビュー待ち/承認済みのAssetが存在するため、再生成をスキップしました。');
+        fetchProjects();
+      } else if (res.ok) {
+        fetchProjects();
+      } else {
+        alert('Asset生成に失敗しました: ' + (res.error || res.status || ''));
+      }
+    })
+    .catch(e => alert('エラー: ' + e))
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Generate Assets'; }
     });
 }
 

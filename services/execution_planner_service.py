@@ -312,6 +312,68 @@ def list_execution_plans(asset_type: str | None = None, outputs_dir: Path | None
         return []
 
 
+def register_project_execution_plan(
+    project_name: str,
+    asset_type: str,
+    outputs_dir: Path | None = None,
+) -> dict:
+    """
+    Quest94：Project Management Service（Quest93）で作成されたProjectを起点に、
+    outputs/execution_plans/<asset_type>_project.md へExecution Planを直接
+    登録する。generate_execution_plans()はIssue Pipelineの実装待ちIssueのみを
+    対象にしているため、Projectを起点にしたExecution PlanはProject Service側
+    （services/project_service.generate_project_assets()）からこの関数を
+    呼び出して登録する。ファイル形式・重複防止（同じProjectタイトルは
+    再登録しない）はgenerate_execution_plans()と同じロジックを再利用する。
+
+    戻り値: {"ok": bool, "asset_type": str, "project": str,
+             "status": "generated" | "skipped_existing" | "error",
+             "file": str | None, "error": str | None}
+    保存に失敗しても例外を投げない。
+    """
+    base_outputs_dir = outputs_dir or _OUTPUTS_DIR
+    plans_dir = _plans_dir(base_outputs_dir)
+
+    try:
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        path = plans_dir / f"{asset_type}_project.md"
+
+        existing_content = ""
+        if path.exists():
+            try:
+                existing_content = path.read_text(encoding="utf-8")
+            except Exception:
+                existing_content = ""
+
+        existing_titles = _existing_project_titles(existing_content)
+        if project_name in existing_titles:
+            return {
+                "ok": True, "asset_type": asset_type, "project": project_name,
+                "status": "skipped_existing", "file": str(path), "error": None,
+            }
+
+        deliverables, tasks = _asset_deliverables_and_tasks(asset_type)
+        generated_at = datetime.now().strftime("%Y-%m-%d")
+        new_block = _render_plan(project_name, asset_type, generated_at, deliverables, tasks)
+
+        if existing_content.strip():
+            content = existing_content.rstrip() + "\n\n---\n\n" + new_block + "\n"
+        else:
+            content = new_block + "\n"
+        path.write_text(content, encoding="utf-8")
+
+        return {
+            "ok": True, "asset_type": asset_type, "project": project_name,
+            "status": "generated", "file": str(path), "error": None,
+        }
+    except Exception as e:
+        print(f"[警告] Project起点のExecution Plan登録に失敗しました（{project_name}）：{e}")
+        return {
+            "ok": False, "asset_type": asset_type, "project": project_name,
+            "status": "error", "file": None, "error": str(e),
+        }
+
+
 def generate_execution_plans(
     memory_dir: Path | None = None,
     outputs_dir: Path | None = None,

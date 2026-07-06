@@ -396,6 +396,90 @@ def archive_project(project_id: str, projects_dir: Path | None = None) -> dict:
         return {"ok": False, "id": project_id, "error": str(e)}
 
 
+def generate_project_assets(
+    project_id: str,
+    projects_dir: Path | None = None,
+    outputs_dir: Path | None = None,
+) -> dict:
+    """
+    Quest94：Project Management ServiceとAsset Generatorを接続する。
+    指定Projectを起点に「Execution Plan登録 → Asset生成 → Notification更新」
+    まで進める。v1では asset_type が line_sticker のProjectのみ対応する
+    （Asset Generator自体がline_sticker専用のため。他のAsset Typeは
+    "unsupported_asset_type" を返し、何もしない）。
+
+    Execution Plan・Asset生成とも既存のグローバルなoutputs/（Execution
+    Planner・Asset Generatorが元々参照している場所）を経由する。プロジェクト
+    固有のoutputs/execution_plan.md（create_project()の自動起動で生成される
+    下書き）は変更しない。
+
+    戻り値: {"ok": bool, "id": str, "asset_type": str | None,
+             "status": "generated" | "skipped_existing" | "no_plan" |
+                       "unsupported_asset_type" | "not_found" | "error",
+             "execution_plan": dict | None, "asset_generation": dict | None,
+             "notifications_added": list[dict], "error": str | None}
+
+    各ステップは個別にtry/exceptで守られており、1つが失敗しても他の
+    ステップ・DAF OS全体には影響しない。例外を投げない。
+    """
+    base = _projects_dir(projects_dir)
+
+    try:
+        projects = list_projects(projects_dir=base)
+        project = next((p for p in projects if p["id"] == project_id), None)
+        if not project:
+            return {"ok": False, "id": project_id, "asset_type": None, "status": "not_found", "error": "Projectが見つかりません"}
+
+        asset_type = project.get("asset_type")
+        if asset_type != "line_sticker":
+            return {
+                "ok": False, "id": project_id, "asset_type": asset_type,
+                "status": "unsupported_asset_type",
+                "error": "v1ではline_stickerのみAsset生成に対応しています",
+            }
+
+        execution_plan_result = None
+        try:
+            from services.execution_planner_service import register_project_execution_plan
+            execution_plan_result = register_project_execution_plan(
+                project["name"], asset_type, outputs_dir=outputs_dir,
+            )
+        except Exception as e:
+            print(f"[警告] Execution Planの登録に失敗しました（{project_id}）：{e}")
+            execution_plan_result = {"ok": False, "error": str(e)}
+
+        asset_generation_result = None
+        try:
+            from services.asset_generator_service import generate_assets
+            asset_generation_result = generate_assets(outputs_dir=outputs_dir)
+        except Exception as e:
+            print(f"[警告] Asset生成に失敗しました（{project_id}）：{e}")
+            asset_generation_result = {"status": "error", "error": str(e)}
+
+        notifications_added = []
+        try:
+            from services.notification_service import generate_notifications
+            notifications_added = generate_notifications(outputs_dir=outputs_dir)
+        except Exception as e:
+            print(f"[警告] Notification更新に失敗しました（{project_id}）：{e}")
+
+        overall_status = (asset_generation_result or {}).get("status", "error")
+
+        return {
+            "ok": overall_status in ("generated", "skipped_existing"),
+            "id": project_id,
+            "asset_type": asset_type,
+            "status": overall_status,
+            "execution_plan": execution_plan_result,
+            "asset_generation": asset_generation_result,
+            "notifications_added": notifications_added,
+            "error": None,
+        }
+    except Exception as e:
+        print(f"[警告] Project起点のAsset生成に失敗しました（{project_id}）：{e}")
+        return {"ok": False, "id": project_id, "asset_type": None, "status": "error", "error": str(e)}
+
+
 def get_project_summary(projects_dir: Path | None = None) -> str:
     """
     登録済みプロジェクトをAI会議へ注入する短いMarkdown要約に整形する。
@@ -443,13 +527,24 @@ def _cli_create(args: list[str]) -> None:
         print(f"[Project] 作成に失敗しました：{result.get('error')}")
 
 
+def _cli_generate_assets(args: list[str]) -> None:
+    if len(args) < 1:
+        print("使い方: python services/project_service.py generate-assets <project_id>")
+        return
+    result = generate_project_assets(args[0])
+    print(f"[Project] Asset生成：{result}")
+
+
 if __name__ == "__main__":
-    # Quest93: CLI導線。
+    # Quest93/94: CLI導線。
     #   python services/project_service.py list
     #   python services/project_service.py create <name> <asset_type> <vision>
+    #   python services/project_service.py generate-assets <project_id>
     argv = sys.argv[1:]
     if argv and argv[0] == "create":
         _cli_create(argv[1:])
+    elif argv and argv[0] == "generate-assets":
+        _cli_generate_assets(argv[1:])
     elif argv and argv[0] == "list":
         for p in list_projects():
             print(f"{p['id']} {p['name']}（{p['status']} / {p['asset_type']}）")
