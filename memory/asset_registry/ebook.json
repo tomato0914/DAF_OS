@@ -1,0 +1,32 @@
+{
+  "asset_type": "ebook",
+  "display_name": "Ebook",
+
+  "deliverables": [
+    "outline.md",
+    "chapters/",
+    "manuscript.md",
+    "cover.png",
+    "ebook.epub"
+  ],
+
+  "tasks": [
+    "Create Outline",
+    "Write Chapters",
+    "Generate Cover",
+    "Compile Ebook",
+    "Review Manuscript"
+  ],
+
+  "review_items": [
+    "誤字脱字",
+    "著作権",
+    "フォーマット崩れ",
+    "目次整合性"
+  ],
+
+  "publish_package": [
+    "ebook.epub",
+    "cover.png"
+  ]
+}

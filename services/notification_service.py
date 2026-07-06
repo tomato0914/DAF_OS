@@ -2,11 +2,67 @@
 DAF OS v1.2 — Mac 通知サービス
 osascript を使って通知センターに結果を表示する。
 失敗してもエラー停止しない。
+
+Quest92（Notification Center）で、上記のMac通知（notify()）とは別に、
+DAF OS内の重要イベントを1つのMarkdown通知ログ（outputs/notifications.md）に
+集約する機能を追加した。v1ではSlack・メール・Discordなどの外部通知は行わない
+（目的は「DAF OS内で重要イベントを見逃さないこと」）。
+
+通知は2種類の発生源を持つ：
+1. イベント駆動：Asset Generator（Quest90）・Artifact Review Center（Quest91）が、
+   成果物生成・レビュー判断のタイミングでadd_notification()を直接呼ぶ
+   （"Asset Generated" / "Review Decision"）。
+2. 状態スキャン駆動：generate_notifications()がoutputs/以下の現在の状態
+   （レビュー待ちAsset・Critical KPI Alert・実装待ちIssue）を確認し、
+   該当すれば通知を追加する（"Review Requested" / "Critical KPI Alert" /
+   "Pending Implementation"）。
+
+重複通知防止：同じ (title, source, message) の組み合わせが既に
+outputs/notifications.md に存在する場合は追加しない。
+
+通知レベル： info / warning / critical / success
+
+必要な関数：
+- add_notification(title, message, level="info", source="system"):
+    通知を outputs/notifications.md に追記する（重複していれば追加しない）
+- generate_notifications():
+    現在の状態を確認し、必要な通知を生成する（Review Requested /
+    Critical KPI Alert / Pending Implementation）
+- generate_notification_summary():
+    AI会議へ注入する短いMarkdown要約を返す
+
+CLI:
+  python services/notification_service.py
 """
 
 import re
 import subprocess
+import sys
+from datetime import datetime
 from pathlib import Path
+
+# `python services/notification_service.py` のように直接実行された場合、
+# リポジトリルートが sys.path に無く `services.*` を解決できないため追加する
+# （services/artifact_review_service.py と同じ対策）。
+_REPO_ROOT = str(Path(__file__).parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+_BASE_DIR = Path(__file__).parent.parent
+_MEMORY_DIR = _BASE_DIR / "memory"
+_OUTPUTS_DIR = _BASE_DIR / "outputs"
+_NOTIFICATIONS_FILENAME = "notifications.md"
+
+_LEVELS = ("info", "warning", "critical", "success")
+_LEVEL_DISPLAY_ORDER = ("critical", "warning", "info", "success")
+_LEVEL_SECTION_LABEL = {
+    "critical": "Critical",
+    "warning": "Warning",
+    "info": "Info",
+    "success": "Success",
+}
+
+_NO_DATA_SUMMARY = "## Notification Summary\n\n現在、通知はありません。"
 
 
 def _extract_actions(dashboard_text: str) -> list[str]:
@@ -107,3 +163,294 @@ def notify(
     except Exception as e:
         print(f"[通知] 通知送信に失敗しました: {e} → スキップ")
         return False
+
+
+# ──────────────────────────────────────────
+# Quest92: Notification Center（Markdown通知ログ）
+# 上記のnotify()（Mac通知センターへの単発通知）とは独立した機能。
+# ──────────────────────────────────────────
+
+def _notifications_path(outputs_dir: Path) -> Path:
+    return outputs_dir / _NOTIFICATIONS_FILENAME
+
+
+def _parse_notifications(content: str) -> list[dict]:
+    """
+    既存の outputs/notifications.md を再度構造化データに戻す。重複通知防止
+    （(title, source, message)の既存チェック）とSummary集計に使う。
+    パース失敗の場合も例外を投げず、空リストを返す。
+    """
+    try:
+        text = re.sub(r"^# Notifications\s*\n+", "", content.strip())
+        blocks = re.split(r"\n-{3,}\n", text)
+
+        notifications = []
+        for block in blocks:
+            block = block.strip()
+            if not block.startswith("## "):
+                continue
+
+            m = re.match(r"^## (\S+ \S+) - (.+)", block)
+            if not m:
+                continue
+            timestamp, title = m.group(1).strip(), m.group(2).strip()
+
+            level_m = re.search(r"^Level:\s*(.+)$", block, re.MULTILINE)
+            source_m = re.search(r"^Source:\s*(.+)$", block, re.MULTILINE)
+            level = level_m.group(1).strip() if level_m else "info"
+            source = source_m.group(1).strip() if source_m else "system"
+
+            message_m = re.search(r"^Source:.*\n\n([\s\S]+)$", block, re.MULTILINE)
+            message = message_m.group(1).strip() if message_m else ""
+
+            notifications.append({
+                "timestamp": timestamp,
+                "title": title,
+                "level": level,
+                "source": source,
+                "message": message,
+            })
+        return notifications
+    except Exception:
+        return []
+
+
+def _render_notification(timestamp: str, title: str, level: str, source: str, message: str) -> str:
+    return "\n".join([
+        f"## {timestamp} - {title}",
+        "",
+        f"Level: {level}",
+        f"Source: {source}",
+        "",
+        message,
+    ])
+
+
+def add_notification(
+    title: str,
+    message: str,
+    level: str = "info",
+    source: str = "system",
+    outputs_dir: Path | None = None,
+) -> bool:
+    """
+    通知を outputs/notifications.md に追記する。同じ (title, source, message)
+    の通知が既に存在する場合は追加しない（重複通知防止）。
+
+    戻り値: 実際に追記した場合はTrue、重複によりスキップした場合・
+    書き込みに失敗した場合はFalse（例外を投げない）。
+    """
+    try:
+        base = outputs_dir or _OUTPUTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        path = _notifications_path(base)
+
+        existing_content = path.read_text(encoding="utf-8") if path.exists() else ""
+        existing = _parse_notifications(existing_content) if existing_content else []
+        existing_keys = {(n["title"], n["source"], n["message"]) for n in existing}
+
+        if (title, source, message) in existing_keys:
+            return False
+
+        level_key = (level or "info").strip().lower()
+        if level_key not in _LEVELS:
+            level_key = "info"
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new_block = _render_notification(timestamp, title, level_key, source, message)
+
+        if existing_content.strip():
+            content = existing_content.rstrip() + "\n\n---\n\n" + new_block + "\n"
+        else:
+            content = "# Notifications\n\n" + new_block + "\n"
+
+        path.write_text(content, encoding="utf-8")
+        return True
+    except Exception as e:
+        print(f"[警告] 通知の追加に失敗しました（{title}）：{e}")
+        return False
+
+
+def _pending_review_asset_types(outputs_dir: Path) -> list[str]:
+    """outputs/generated_assets/*/metadata.md からStatusがpending_reviewのAsset Typeを返す。"""
+    try:
+        assets_dir = outputs_dir / "generated_assets"
+        if not assets_dir.exists():
+            return []
+        pending = []
+        for asset_dir in sorted(assets_dir.iterdir()):
+            metadata_path = asset_dir / "metadata.md"
+            if not metadata_path.exists():
+                continue
+            try:
+                text = metadata_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            m = re.search(r"^Status:\s*\n(.+)$", text, re.MULTILINE)
+            status = m.group(1).strip() if m else None
+            if status == "pending_review":
+                pending.append(asset_dir.name)
+        return pending
+    except Exception as e:
+        print(f"[警告] Review Requestedの取得に失敗しました：{e}")
+        return []
+
+
+def _has_critical_kpi_alert(kpi_dir: Path | None, memory_dir: Path) -> bool:
+    try:
+        from services.kpi_alert_service import get_active_kpi_alerts
+        alerts = get_active_kpi_alerts(kpi_dir=kpi_dir, memory_dir=memory_dir)
+        return any(a.get("level") == "CRITICAL" for a in alerts)
+    except Exception as e:
+        print(f"[警告] KPI Alertsの取得に失敗しました：{e}")
+        return False
+
+
+def _has_pending_implementation(outputs_dir: Path) -> bool:
+    try:
+        from services.issue_pipeline_service import load_generated_issues
+        issues = load_generated_issues(outputs_dir=outputs_dir)
+        return any(i.get("status") == "pending_implementation" for i in issues)
+    except Exception as e:
+        print(f"[警告] Issue Pipelineの取得に失敗しました：{e}")
+        return False
+
+
+def generate_notifications(
+    kpi_dir: Path | None = None,
+    outputs_dir: Path | None = None,
+    memory_dir: Path | None = None,
+) -> list[dict]:
+    """
+    現在の状態（レビュー待ちAsset・Critical KPI Alert・実装待ちIssue）を
+    確認し、該当する通知を outputs/notifications.md に追加する。
+    add_notification()自体が重複防止を行うため、状態が変わらない限り
+    何度実行しても通知は増え続けない。
+
+    参照対象：outputs/generated_assets/・outputs/reviews/（Statusの参照元）・
+    KPI Alert（services/kpi_alert_service経由）・
+    outputs/issue_pipeline/generated_issues.md
+
+    戻り値: 今回の実行で新しく追加された通知のリスト（追加が無ければ空リスト）。
+    各情報源の読み込みは個別にtry/exceptで守られており、DAF OS全体を止めない。
+    """
+    base_outputs_dir = outputs_dir or _OUTPUTS_DIR
+    base_memory_dir = memory_dir or _MEMORY_DIR
+
+    added = []
+
+    try:
+        for asset_type in _pending_review_asset_types(base_outputs_dir):
+            title = "Review Requested"
+            message = f"{asset_type} がレビュー待ちです。"
+            source = "artifact_review"
+            if add_notification(title, message, level="info", source=source, outputs_dir=base_outputs_dir):
+                added.append({"title": title, "message": message, "level": "info", "source": source})
+    except Exception as e:
+        print(f"[警告] Review Requested通知の生成に失敗しました：{e}")
+
+    try:
+        if _has_critical_kpi_alert(kpi_dir, base_memory_dir):
+            title = "Critical KPI Alert"
+            message = "Critical KPI Alertがあります。CEO確認が必要です。"
+            source = "kpi_alert"
+            if add_notification(title, message, level="critical", source=source, outputs_dir=base_outputs_dir):
+                added.append({"title": title, "message": message, "level": "critical", "source": source})
+    except Exception as e:
+        print(f"[警告] Critical KPI Alert通知の生成に失敗しました：{e}")
+
+    try:
+        if _has_pending_implementation(base_outputs_dir):
+            title = "Pending Implementation"
+            message = "実装待ちIssueが存在します。"
+            source = "issue_pipeline"
+            if add_notification(title, message, level="warning", source=source, outputs_dir=base_outputs_dir):
+                added.append({"title": title, "message": message, "level": "warning", "source": source})
+    except Exception as e:
+        print(f"[警告] Pending Implementation通知の生成に失敗しました：{e}")
+
+    return added
+
+
+def generate_notification_summary(outputs_dir: Path | None = None) -> str:
+    """
+    outputs/notifications.md を読み込み、AI会議へ注入する短いMarkdown要約に
+    整形する（services/memory_service.py の load_company_memory() から
+    呼ばれる）。レベル別（Critical → Warning → Info → Success）にメッセージを
+    列挙する。通知が1件も無い場合は「現在、通知はありません。」を返す。
+    例外を投げない。
+    """
+    try:
+        base = outputs_dir or _OUTPUTS_DIR
+        path = _notifications_path(base)
+        if not path.exists():
+            return _NO_DATA_SUMMARY
+
+        content = path.read_text(encoding="utf-8").strip()
+        if not content:
+            return _NO_DATA_SUMMARY
+
+        notifications = _parse_notifications(content)
+        if not notifications:
+            return _NO_DATA_SUMMARY
+
+        by_level: dict[str, list[str]] = {level: [] for level in _LEVELS}
+        for n in notifications:
+            level = n.get("level") if n.get("level") in _LEVELS else "info"
+            message = n.get("message") or n.get("title")
+            if message not in by_level[level]:
+                by_level[level].append(message)
+
+        lines = ["## Notification Summary"]
+        for level in _LEVEL_DISPLAY_ORDER:
+            messages = by_level.get(level) or []
+            if not messages:
+                continue
+            lines.append("")
+            lines.append(f"### {_LEVEL_SECTION_LABEL[level]}")
+            lines.extend(f"- {m}" for m in messages)
+
+        if len(lines) == 1:
+            return _NO_DATA_SUMMARY
+
+        return "\n".join(lines).rstrip()
+    except Exception as e:
+        print(f"[警告] Notification Summaryの生成に失敗しました：{e}")
+        return _NO_DATA_SUMMARY
+
+
+def get_notifications(outputs_dir: Path | None = None) -> list[dict]:
+    """
+    outputs/notifications.md を読み込み専用でパースし、Dashboard
+    （試験運用版）の「Notifications」タブ向けに新しい順（timestamp降順）で
+    返す（Dashboard/CEO Home APIから呼ばれる）。
+
+    戻り値: [{"timestamp": str, "title": str, "level": str, "source": str,
+              "message": str}, ...]
+    ファイル未存在・パース失敗のいずれでも例外を投げず、空リストを返す。
+    """
+    try:
+        base = outputs_dir or _OUTPUTS_DIR
+        path = _notifications_path(base)
+        if not path.exists():
+            return []
+        content = path.read_text(encoding="utf-8").strip()
+        if not content:
+            return []
+        notifications = _parse_notifications(content)
+        notifications.sort(key=lambda n: n.get("timestamp") or "", reverse=True)
+        return notifications
+    except Exception as e:
+        print(f"[警告] Notificationsの取得に失敗しました：{e}")
+        return []
+
+
+if __name__ == "__main__":
+    # Quest92: Dashboard/main.pyの日次バッチを待たずに手動で再生成したい場合のCLI導線。
+    #   python services/notification_service.py
+    added = generate_notifications()
+    print(f"[Notification Center] 新規通知: {len(added)}件")
+    for n in added:
+        print(f"  - [{n['level']}] {n['title']}: {n['message']}")
+    print()
+    print(generate_notification_summary())

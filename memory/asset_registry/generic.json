@@ -1,0 +1,25 @@
+{
+  "asset_type": "generic",
+  "display_name": "Generic Asset",
+
+  "deliverables": [
+    "plan.md",
+    "draft.md",
+    "final_output.md"
+  ],
+
+  "tasks": [
+    "Create Plan",
+    "Create Draft",
+    "Review Output"
+  ],
+
+  "review_items": [
+    "誤字脱字",
+    "要件との整合性"
+  ],
+
+  "publish_package": [
+    "final_output.md"
+  ]
+}

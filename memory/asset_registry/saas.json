@@ -1,0 +1,33 @@
+{
+  "asset_type": "saas",
+  "display_name": "SaaS / Web Service",
+
+  "deliverables": [
+    "PRD.md",
+    "architecture.md",
+    "source_code/",
+    "landing_page.md",
+    "pricing.md"
+  ],
+
+  "tasks": [
+    "Write PRD",
+    "Design Architecture",
+    "Generate Source Code",
+    "Write Landing Page",
+    "Write Pricing Page",
+    "Review Build"
+  ],
+
+  "review_items": [
+    "セキュリティ",
+    "料金設計の妥当性",
+    "UI崩れ",
+    "利用規約整合性"
+  ],
+
+  "publish_package": [
+    "landing_page.md",
+    "pricing.md"
+  ]
+}

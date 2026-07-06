@@ -1,0 +1,36 @@
+{
+  "asset_type": "ios_app",
+  "display_name": "iOS App",
+
+  "deliverables": [
+    "PRD.md",
+    "wireframes.md",
+    "source_code/",
+    "app_icon.png",
+    "screenshots/",
+    "app_store_description.md"
+  ],
+
+  "tasks": [
+    "Write PRD",
+    "Create Wireframes",
+    "Generate Source Code",
+    "Generate App Icon",
+    "Generate Screenshots",
+    "Write App Store Description",
+    "Review Build"
+  ],
+
+  "review_items": [
+    "クラッシュ",
+    "App Storeガイドライン違反",
+    "UI崩れ",
+    "プライバシー対応"
+  ],
+
+  "publish_package": [
+    "app_icon.png",
+    "screenshots/",
+    "app_store_description.md"
+  ]
+}

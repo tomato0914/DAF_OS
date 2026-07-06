@@ -1,0 +1,33 @@
+{
+  "asset_type": "youtube_short",
+  "display_name": "YouTube Short",
+
+  "deliverables": [
+    "script.md",
+    "narration.wav",
+    "thumbnail.png",
+    "video.mp4",
+    "description.md"
+  ],
+
+  "tasks": [
+    "Write Script",
+    "Generate Narration",
+    "Generate Thumbnail",
+    "Generate Video",
+    "Write Description"
+  ],
+
+  "review_items": [
+    "音声品質",
+    "著作権",
+    "誤字",
+    "動画尺"
+  ],
+
+  "publish_package": [
+    "video.mp4",
+    "thumbnail.png",
+    "description.md"
+  ]
+}

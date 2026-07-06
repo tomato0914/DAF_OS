@@ -1,0 +1,70 @@
+{
+  "asset_type": "line_sticker",
+  "display_name": "LINE Sticker",
+
+  "deliverables": [
+    "stamp_01.png",
+    "stamp_02.png",
+    "stamp_03.png",
+    "stamp_04.png",
+    "stamp_05.png",
+    "stamp_06.png",
+    "stamp_07.png",
+    "stamp_08.png",
+    "stamp_09.png",
+    "stamp_10.png",
+    "stamp_11.png",
+    "stamp_12.png",
+    "stamp_13.png",
+    "stamp_14.png",
+    "stamp_15.png",
+    "stamp_16.png",
+    "stamp_17.png",
+    "stamp_18.png",
+    "stamp_19.png",
+    "stamp_20.png",
+    "stamp_21.png",
+    "stamp_22.png",
+    "stamp_23.png",
+    "stamp_24.png",
+    "stamp_25.png",
+    "stamp_26.png",
+    "stamp_27.png",
+    "stamp_28.png",
+    "stamp_29.png",
+    "stamp_30.png",
+    "stamp_31.png",
+    "stamp_32.png",
+    "stamp_33.png",
+    "stamp_34.png",
+    "stamp_35.png",
+    "stamp_36.png",
+    "stamp_37.png",
+    "stamp_38.png",
+    "stamp_39.png",
+    "stamp_40.png",
+    "main.png",
+    "tab.png",
+    "metadata.md",
+    "stickers.zip"
+  ],
+
+  "tasks": [
+    "Character Design",
+    "Generate 40 Phrases",
+    "Generate Sticker Images",
+    "Resize Images",
+    "Package Assets"
+  ],
+
+  "review_items": [
+    "画像サイズ",
+    "誤字",
+    "ブランド違反",
+    "利用規約違反"
+  ],
+
+  "publish_package": [
+    "stickers.zip"
+  ]
+}

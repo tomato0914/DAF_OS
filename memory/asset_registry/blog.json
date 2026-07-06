@@ -1,0 +1,33 @@
+{
+  "asset_type": "blog",
+  "display_name": "Blog Article",
+
+  "deliverables": [
+    "outline.md",
+    "draft.md",
+    "final_article.md",
+    "featured_image.png",
+    "meta_description.md"
+  ],
+
+  "tasks": [
+    "Create Outline",
+    "Write Draft",
+    "Generate Featured Image",
+    "Write Meta Description",
+    "Review Article"
+  ],
+
+  "review_items": [
+    "誤字脱字",
+    "SEOキーワード",
+    "著作権",
+    "トーン&マナー"
+  ],
+
+  "publish_package": [
+    "final_article.md",
+    "featured_image.png",
+    "meta_description.md"
+  ]
+}
