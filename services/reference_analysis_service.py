@@ -45,6 +45,7 @@ DAF OS全体を止めない。
 import json
 import re
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -59,6 +60,10 @@ _REFERENCE_LIBRARY_DIR_NAME = "reference_library"
 # Quest101のv1固定カテゴリ。将来増やす場合もensure_reference_library()の
 # 引数を変えるだけで対応できる。
 _DEFAULT_CATEGORIES = ["animals", "cute", "simple", "pastel", "manga", "realistic"]
+
+# Quest102：Reference Upload UIが受け付ける画像形式（画像解析AIは使わない、
+# 保存のみの最低限のホワイトリスト）。
+_ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 _NO_REFERENCE_TEXT = "参考画像はまだ登録されていません。"
 _NO_REFERENCE_SUMMARY = "まだ参考画像が登録されていません。"
@@ -87,6 +92,88 @@ def ensure_reference_library(outputs_dir: Path | None = None) -> Path:
     except Exception as e:
         print(f"[警告] Reference Libraryの作成に失敗しました：{e}")
     return root
+
+
+def get_default_categories() -> list[str]:
+    """Quest101既定の6カテゴリをコピーで返す（Dashboardのカテゴリ選択用）。"""
+    return list(_DEFAULT_CATEGORIES)
+
+
+def save_reference_image(
+    file_bytes: bytes,
+    original_filename: str,
+    category: str = "",
+    project_id: str | None = None,
+    tags: list[str] | None = None,
+    description: str = "",
+    outputs_dir: Path | None = None,
+) -> dict:
+    """
+    Quest102：Reference Upload UIから受け取った画像バイナリを
+    outputs/reference_library/<category>/ へ保存し、reference.jsonも
+    合わせて登録する（register_reference_metadata()を利用、画像解析は行わない）。
+
+    拡張子はpng/jpg/jpeg/webpのみ許可。ファイル名は衝突・パストラバーサル
+    防止のため、タイムスタンプ+ランダムIDを付与した安全な名前に丸める。
+    descriptionはreference.jsonのmemo項目（既存スキーマ）に保存する。
+
+    戻り値: {"ok": bool, "path": str | None, "metadata": dict | None,
+             "error": str | None}
+    書き込み失敗時も例外を投げない。
+    """
+    try:
+        ext = Path(original_filename or "").suffix.lower()
+        if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+            allowed = "/".join(sorted(e.lstrip(".") for e in _ALLOWED_IMAGE_EXTENSIONS))
+            return {"ok": False, "path": None, "metadata": None,
+                    "error": f"対応していない画像形式です（対応形式: {allowed}）"}
+
+        safe_cat = _safe_category(category)
+        root = ensure_reference_library(outputs_dir)
+        cat_dir = root / safe_cat
+        cat_dir.mkdir(parents=True, exist_ok=True)
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique = uuid.uuid4().hex[:8]
+        stem = re.sub(r"[^\w\-]", "_", Path(original_filename or "").stem).strip("_") or "reference"
+        stem = stem[:60]
+        safe_filename = f"ref_{stamp}_{unique}_{stem}{ext}"
+
+        image_path = cat_dir / safe_filename
+        image_path.write_bytes(file_bytes)
+
+        title = Path(original_filename or "").stem or safe_filename
+        return register_reference_metadata(
+            category=safe_cat,
+            filename=safe_filename,
+            project_id=project_id or None,
+            title=title,
+            tags=tags,
+            memo=description,
+            outputs_dir=outputs_dir,
+        )
+    except Exception as e:
+        print(f"[警告] Reference画像の保存に失敗しました（{original_filename}）：{e}")
+        return {"ok": False, "path": None, "metadata": None, "error": str(e)}
+
+
+def refresh_all_reference_summaries(outputs_dir: Path | None = None) -> list[dict]:
+    """
+    Quest102：登録済み参考画像に紐づく全project_idについて、
+    generate_vega_reference_report()を呼び直しReference Summaryを更新する。
+    project_id未紐づけ（None）の画像はレポート対象に含めない
+    （generate_vega_reference_report()がproject_id必須のため）。
+
+    戻り値: generate_vega_reference_report()の戻り値のリスト。
+    project_idが1件も無い場合は空リストを返す。例外を投げない。
+    """
+    try:
+        images = list_reference_images(outputs_dir=outputs_dir)
+        project_ids = sorted({img["project_id"] for img in images if img.get("project_id")})
+        return [generate_vega_reference_report(pid, outputs_dir=outputs_dir) for pid in project_ids]
+    except Exception as e:
+        print(f"[警告] Reference Summaryの一括更新に失敗しました：{e}")
+        return []
 
 
 def register_reference_metadata(

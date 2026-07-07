@@ -660,6 +660,119 @@ def api_reference_library():
 
 
 # ──────────────────────────────────────────
+# Reference Upload UI API（Quest102）
+# 画像解析AIは使わない。タグ・説明文はCEOが手動入力する前提。
+# ──────────────────────────────────────────
+
+_REFERENCE_LIBRARY_DIR = OUTPUTS_DIR / "reference_library"
+_REFERENCE_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@app.route("/api/references")
+def api_references():
+    """
+    登録済み参考画像の一覧・既定カテゴリ・登録済みProject一覧を返す
+    （Referencesタブのアップロードフォーム・一覧表示向け）。
+    """
+    try:
+        from services.reference_analysis_service import list_reference_images, get_default_categories
+        from services.project_service import list_projects
+
+        references = list_reference_images(outputs_dir=OUTPUTS_DIR)
+
+        projects = []
+        try:
+            projects = list_projects(projects_dir=PROJECTS_DIR)
+        except Exception:
+            pass  # Project一覧が取れなくても参考画像一覧は返す
+
+        return jsonify({
+            "references": references,
+            "categories": get_default_categories(),
+            "projects": projects,
+        })
+    except Exception as e:
+        return jsonify({"references": [], "categories": [], "projects": [], "error": str(e)}), 500
+
+
+@app.route("/api/references/upload", methods=["POST"])
+def api_references_upload():
+    """
+    参考画像をアップロードし、outputs/reference_library/<category>/ へ保存、
+    合わせてreference.jsonを登録する（Referencesタブのアップロードフォームから呼ばれる）。
+    画像解析は行わない。tags はカンマ区切りテキストを配列化して保存する。
+    """
+    try:
+        uploaded = request.files.get("file")
+        if not uploaded or not uploaded.filename:
+            return jsonify({"ok": False, "error": "画像ファイルを選択してください"}), 400
+
+        ext = Path(uploaded.filename).suffix.lower()
+        if ext not in _REFERENCE_ALLOWED_EXT:
+            allowed = "/".join(sorted(e.lstrip(".") for e in _REFERENCE_ALLOWED_EXT))
+            return jsonify({"ok": False, "error": f"対応していない画像形式です（対応形式: {allowed}）"}), 400
+
+        category = str(request.form.get("category", "")).strip()[:50] or "uncategorized"
+        project_id = str(request.form.get("project", "")).strip()[:100] or None
+        description = str(request.form.get("description", "")).strip()[:1000]
+        raw_tags = str(request.form.get("tags", ""))
+        tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+
+        file_bytes = uploaded.read()
+
+        from services.reference_analysis_service import save_reference_image
+        result = save_reference_image(
+            file_bytes=file_bytes,
+            original_filename=uploaded.filename,
+            category=category,
+            project_id=project_id,
+            tags=tags,
+            description=description,
+            outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/references/summary/refresh", methods=["POST"])
+def api_references_summary_refresh():
+    """
+    Reference Summary（Vega Reference Report）を再生成する。
+    project_idを指定すればそのProjectのみ、未指定なら参考画像が登録済みの
+    全Projectをまとめて更新する。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        project_id = str(data.get("project_id", "")).strip()
+
+        from services.reference_analysis_service import (
+            generate_vega_reference_report, refresh_all_reference_summaries,
+        )
+
+        if project_id:
+            result = generate_vega_reference_report(project_id, outputs_dir=OUTPUTS_DIR)
+            return jsonify({"ok": result.get("ok", False), "results": [result]})
+
+        results = refresh_all_reference_summaries(outputs_dir=OUTPUTS_DIR)
+        return jsonify({"ok": True, "results": results})
+    except Exception as e:
+        return jsonify({"ok": False, "results": [], "error": str(e)}), 500
+
+
+@app.route("/reference-library/<path:filename>")
+def serve_reference_image(filename):
+    """
+    outputs/reference_library/ 配下の画像ファイルを返す（Referencesタブの一覧表示用）。
+    許可された画像拡張子以外・reference.jsonは404にする。
+    """
+    ext = Path(filename).suffix.lower()
+    if ext not in _REFERENCE_ALLOWED_EXT:
+        abort(404)
+    return send_from_directory(_REFERENCE_LIBRARY_DIR, filename)
+
+
+# ──────────────────────────────────────────
 # LINEスタンプ生成結果（Quest94 v2で追加、Quest97でProject別対応）
 # フォルダを開かなくてもDashboard上でProject別に40枚のスタンプ・main/tab・
 # zip・metadataを確認できるようにするためのAPI。

@@ -1700,3 +1700,12 @@ body {
   border-radius: 999px;
 }
 .reference-latest-meta { color: var(--muted); font-size: 0.76rem; }
+
+/* ─── Quest102：🎨 References タブ（アップロード・一覧） ─── */
+.reference-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}

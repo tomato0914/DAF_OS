@@ -29,6 +29,7 @@
   <button class="tab-btn" data-tab="projects" onclick="switchTab('projects')" id="tabProjects">🗂️ プロジェクト</button>
   <button class="tab-btn" data-tab="assets" onclick="switchTab('assets')" id="tabAssets">🎨 Generated Assets</button>
   <button class="tab-btn" data-tab="notifications" onclick="switchTab('notifications')" id="tabNotifications">🔔 Notifications</button>
+  <button class="tab-btn" data-tab="references" onclick="switchTab('references')" id="tabReferences">🎨 References</button>
 </nav>
 
 <!-- ダッシュボードタブ -->
@@ -106,6 +107,44 @@
   </div>
 </main>
 
+<!-- Referencesタブ（Quest102） -->
+<main class="container" id="tabReferenceCenter" style="display:none">
+  <div class="card full">
+    <div class="card-title">🎨 参考画像をアップロード</div>
+    <div class="project-form">
+      <label class="project-form-label">画像ファイル（png / jpg / jpeg / webp）</label>
+      <input type="file" class="project-input" id="refUploadFile" accept=".png,.jpg,.jpeg,.webp">
+
+      <label class="project-form-label">Category</label>
+      <select class="project-input" id="refUploadCategory"></select>
+
+      <label class="project-form-label">Project</label>
+      <select class="project-input" id="refUploadProject">
+        <option value="">（未紐づけ）</option>
+      </select>
+
+      <label class="project-form-label">Tags（カンマ区切り）</label>
+      <input type="text" class="project-input" id="refUploadTags" placeholder="例：犬, かわいい, パステル">
+
+      <label class="project-form-label">Description</label>
+      <textarea class="project-input" id="refUploadDescription" rows="2" placeholder="例：丸い目、やさしい色、シンプルな線"></textarea>
+
+      <button class="btn btn-approve" id="refUploadBtn" onclick="uploadReferenceImage()">Upload</button>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-title">🧾 Reference Summary</div>
+    <button class="btn" id="refSummaryRefreshBtn" onclick="refreshReferenceSummary()">🔄 Summary Refresh</button>
+    <div id="refSummaryRefreshResult"></div>
+  </div>
+
+  <div class="card full" id="referenceListContent">
+    <div class="card-title">🖼️ Reference一覧</div>
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
+</main>
+
 <!-- 却下理由モーダル -->
 <div class="modal-backdrop" id="rejectModal" style="display:none">
   <div class="modal">
@@ -155,6 +194,7 @@ function switchTab(tab) {
   document.getElementById('tabProjectCenter').style.display   = tab === 'projects' ? '' : 'none';
   document.getElementById('tabAssetCenter').style.display     = tab === 'assets' ? '' : 'none';
   document.getElementById('tabNotificationCenter').style.display = tab === 'notifications' ? '' : 'none';
+  document.getElementById('tabReferenceCenter').style.display = tab === 'references' ? '' : 'none';
   // タブボタン以外（CEOサマリーのタイルなど）から呼ばれても安全なように、
   // 暗黙の event を使わず data-tab 属性で対象ボタンを探す
   const activeBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
@@ -163,6 +203,7 @@ function switchTab(tab) {
   if (tab === 'projects') fetchProjects();
   if (tab === 'assets') { fetchGeneratedAssets(); fetchLineStickerProjects(); fetchRendererInfo(); }
   if (tab === 'notifications') fetchNotifications();
+  if (tab === 'references') fetchReferences();
 }
 
 // ────────────────────────────────
@@ -1723,6 +1764,146 @@ function fetchReferenceLibrary() {
     .catch(() => {
       const container = document.getElementById('referenceLibraryContainer');
       if (container) container.innerHTML = '';
+    });
+}
+
+// ────────────────────────────────
+// Quest102：🎨 References タブ（アップロード・一覧・Summary Refresh）
+// 画像解析AIは使わない。タグ・説明文はCEOが手動入力する前提。
+// ────────────────────────────────
+
+let _referenceCategories = [];
+let _referenceProjects = [];
+
+function _populateReferenceSelects() {
+  const catSel = document.getElementById('refUploadCategory');
+  if (catSel) {
+    catSel.innerHTML = _referenceCategories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  }
+  const projSel = document.getElementById('refUploadProject');
+  if (projSel) {
+    projSel.innerHTML = '<option value="">（未紐づけ）</option>' +
+      _referenceProjects.map(p => `<option value="${esc(p.id)}">${esc(p.id)} - ${esc(p.name)}</option>`).join('');
+  }
+}
+
+function renderReferenceList(references) {
+  const list = references || [];
+  let html = '<div class="card-title">🖼️ Reference一覧（' + list.length + '件）</div>';
+
+  if (list.length === 0) {
+    html += '<div class="ceo-brief-empty">まだ参考画像は登録されていません。上のフォームからアップロードしてください。</div>';
+  } else {
+    html += `
+      <div class="table-scroll">
+      <table class="simple-table">
+        <thead>
+          <tr><th>画像</th><th>Title</th><th>Category</th><th>Project</th><th>Tags</th><th>Description</th><th>登録日時</th></tr>
+        </thead>
+        <tbody>
+    `;
+    list.forEach(r => {
+      const imgUrl = `/reference-library/${encodeURIComponent(r.category || '')}/${encodeURIComponent(r.filename || '')}`;
+      const tags = (r.tags || []).map(t => `<span class="reference-tag">${esc(t)}</span>`).join(' ');
+      html += `
+        <tr>
+          <td><img src="${imgUrl}" alt="${esc(r.title || r.filename || '')}" class="reference-thumb" onerror="this.style.display='none'"></td>
+          <td>${esc(r.title || r.filename || '-')}</td>
+          <td>${esc(r.category || '-')}</td>
+          <td>${esc(r.project_id || '-')}</td>
+          <td>${tags || '-'}</td>
+          <td>${esc(r.memo || '-')}</td>
+          <td>${esc(r.registered_at || '-')}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('referenceListContent').innerHTML = html;
+}
+
+function fetchReferences() {
+  fetch('/api/references')
+    .then(r => r.json())
+    .then(data => {
+      _referenceCategories = data.categories || [];
+      _referenceProjects = data.projects || [];
+      _populateReferenceSelects();
+      renderReferenceList(data.references);
+    })
+    .catch(e => {
+      document.getElementById('referenceListContent').innerHTML =
+        `<div class="error-box">⚠️ Reference一覧の取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+function uploadReferenceImage() {
+  const fileInput = document.getElementById('refUploadFile');
+  const file = fileInput.files[0];
+  if (!file) {
+    alert('画像ファイルを選択してください');
+    return;
+  }
+
+  const btn = document.getElementById('refUploadBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ アップロード中...';
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('category', document.getElementById('refUploadCategory').value);
+  formData.append('project', document.getElementById('refUploadProject').value);
+  formData.append('tags', document.getElementById('refUploadTags').value);
+  formData.append('description', document.getElementById('refUploadDescription').value);
+
+  fetch('/api/references/upload', { method: 'POST', body: formData })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ data }) => {
+      if (data.ok) {
+        fileInput.value = '';
+        document.getElementById('refUploadTags').value = '';
+        document.getElementById('refUploadDescription').value = '';
+        fetchReferences();
+        fetchReferenceLibrary();
+      } else {
+        alert('⚠️ ' + (data.error || 'アップロードに失敗しました'));
+      }
+    })
+    .catch(e => alert('エラー: ' + e))
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Upload';
+    });
+}
+
+function refreshReferenceSummary() {
+  const btn = document.getElementById('refSummaryRefreshBtn');
+  const resultEl = document.getElementById('refSummaryRefreshResult');
+  btn.disabled = true;
+  btn.textContent = '⏳ 更新中...';
+
+  fetch('/api/references/summary/refresh', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({}),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        const count = (data.results || []).length;
+        resultEl.innerHTML = `<div class="creative-direction-text">✅ Reference Summaryを更新しました（${count}件のProject）。</div>`;
+        fetchReferenceLibrary();
+      } else {
+        resultEl.innerHTML = `<div class="error-box">⚠️ ${esc(data.error || 'Summaryの更新に失敗しました')}</div>`;
+      }
+    })
+    .catch(e => {
+      resultEl.innerHTML = `<div class="error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '🔄 Summary Refresh';
     });
 }
 
