@@ -606,37 +606,117 @@ def api_generated_assets():
         return jsonify({"assets": [], "error": str(e)}), 500
 
 
+@app.route("/api/renderer")
+def api_renderer():
+    """
+    Quest98：現在使用中の画像生成Renderer（既定はPillow Renderer）と、
+    将来切替可能なRenderer一覧を返す。
+    """
+    try:
+        from services.image_generation_service import get_renderer_info
+        return jsonify(get_renderer_info())
+    except Exception as e:
+        return jsonify({"id": "unknown", "display_name": "unknown", "available": [], "error": str(e)}), 500
+
+
 # ──────────────────────────────────────────
-# LINEスタンプ生成結果（Quest94 v2）
-# フォルダを開かなくてもDashboard上で40枚のスタンプ・main/tab・zip・metadataを
-# 確認できるようにするためのAPI。
+# Vega Creative Direction（Quest99・読み取り専用）
+# ──────────────────────────────────────────
+
+@app.route("/api/creative-briefs")
+def api_creative_briefs():
+    """生成済みの全Creative Brief（Vega Creative Director）を一覧で返す。"""
+    try:
+        from services.creative_brief_service import list_creative_briefs
+        return jsonify({"briefs": list_creative_briefs(outputs_dir=OUTPUTS_DIR)})
+    except Exception as e:
+        return jsonify({"briefs": [], "error": str(e)}), 500
+
+
+@app.route("/api/creative-briefs/<project_id>")
+def api_creative_brief_detail(project_id):
+    """指定ProjectのCreative Brief詳細を返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"exists": False, "error": "無効なProject IDです"}), 400
+    try:
+        from services.creative_brief_service import get_creative_brief
+        return jsonify(get_creative_brief(safe_id, outputs_dir=OUTPUTS_DIR))
+    except Exception as e:
+        return jsonify({"exists": False, "project_id": safe_id, "error": str(e)}), 500
+
+
+@app.route("/api/reference-library")
+def api_reference_library():
+    """
+    Quest101：Reference Library（outputs/reference_library/）の集計
+    （登録画像数・タグ一覧・最新登録画像・Reference Summary）を返す。
+    """
+    try:
+        from services.reference_analysis_service import get_reference_library_summary
+        return jsonify(get_reference_library_summary(outputs_dir=OUTPUTS_DIR))
+    except Exception as e:
+        return jsonify({"count": 0, "tags": [], "latest": None, "summary": "", "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# LINEスタンプ生成結果（Quest94 v2で追加、Quest97でProject別対応）
+# フォルダを開かなくてもDashboard上でProject別に40枚のスタンプ・main/tab・
+# zip・metadataを確認できるようにするためのAPI。
 # ──────────────────────────────────────────
 
 _LINE_STICKER_DIR = OUTPUTS_DIR / "generated_assets" / "line_sticker"
 _LINE_STICKER_ALLOWED_EXT = {".png", ".zip", ".md"}
 
 
+def _safe_project_id(raw_id: str) -> str | None:
+    """project_idがフォルダ名として安全かチェックする（_safe_approval_idと同じ方針）。"""
+    if not raw_id or not re.match(r"^[\w\-]+$", raw_id):
+        return None
+    return raw_id
+
+
 @app.route("/api/generated-assets/line-sticker")
 def api_generated_assets_line_sticker():
     """
-    outputs/generated_assets/line_sticker/ の内容
-    （metadata.md・phrases.md・スタンプ画像一覧・main/tab/zip有無）を返す。
+    Quest97：outputs/generated_assets/line_sticker/ 配下の全Project
+    （新形式のサブフォルダ＋後方互換のlegacyフラット形式）の一覧を返す。
     """
     try:
-        from services.asset_generator_service import get_line_sticker_detail
-        return jsonify(get_line_sticker_detail(outputs_dir=OUTPUTS_DIR))
+        from services.asset_generator_service import list_line_sticker_projects
+        return jsonify({"projects": list_line_sticker_projects(outputs_dir=OUTPUTS_DIR)})
     except Exception as e:
-        return jsonify({"exists": False, "error": str(e)}), 500
+        return jsonify({"projects": [], "error": str(e)}), 500
+
+
+@app.route("/api/generated-assets/line-sticker/<project_id>")
+def api_generated_assets_line_sticker_detail(project_id):
+    """
+    指定Project（project_id="legacy"の場合はQuest90〜96時代のフラット形式）の
+    詳細（metadata.md・phrases.md・スタンプ画像一覧・main/tab/zip有無）を返す。
+    """
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"exists": False, "error": "無効なProject IDです"}), 400
+    try:
+        from services.asset_generator_service import get_line_sticker_detail
+        return jsonify(get_line_sticker_detail(outputs_dir=OUTPUTS_DIR, project_id=safe_id))
+    except Exception as e:
+        return jsonify({"exists": False, "project_id": safe_id, "error": str(e)}), 500
 
 
 @app.route("/generated-assets/line-sticker/<path:filename>")
 def serve_line_sticker_file(filename):
     """
-    outputs/generated_assets/line_sticker/ 配下のファイル（スタンプ画像・
-    main.png・tab.png・stickers.zip）を返す。Dashboardのサムネイル表示・
-    ZIPダウンロードから参照される。ディレクトリトラバーサル対策は
-    Flaskのsend_from_directory（パス正規化・親ディレクトリ脱出防止）に
-    委ね、許可された拡張子（png/zip/md）以外は404にする。
+    outputs/generated_assets/line_sticker/ 配下のファイルを返す。
+    Dashboardのサムネイル表示・ZIPダウンロードから参照される。
+
+    Quest97：<path:filename>はスラッシュを含む複数セグメントにもマッチする
+    ため、このルート1つで旧形式（例：main.png）とProject別新形式
+    （例：<project_id>/main.png）の両方を兼用できる（新形式専用のルートを
+    別途増やす必要が無い）。ディレクトリトラバーサル対策はFlaskの
+    send_from_directory（パス正規化・親ディレクトリ脱出防止）に委ね、
+    許可された拡張子（png/zip/md）以外は404にする。
     """
     ext = Path(filename).suffix.lower()
     if ext not in _LINE_STICKER_ALLOWED_EXT:

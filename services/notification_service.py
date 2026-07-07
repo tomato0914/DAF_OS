@@ -271,24 +271,45 @@ def add_notification(
         return False
 
 
+def _metadata_status(metadata_path: Path) -> str | None:
+    if not metadata_path.exists():
+        return None
+    try:
+        text = metadata_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    m = re.search(r"^Status:\s*\n(.+)$", text, re.MULTILINE)
+    return m.group(1).strip() if m else None
+
+
 def _pending_review_asset_types(outputs_dir: Path) -> list[str]:
-    """outputs/generated_assets/*/metadata.md からStatusがpending_reviewのAsset Typeを返す。"""
+    """
+    outputs/generated_assets/*/metadata.md からStatusがpending_reviewの
+    Asset Typeを返す。Quest97：line_stickerがProject別サブフォルダ
+    （outputs/generated_assets/line_sticker/<project_id>/metadata.md）を
+    持つようになったため、直下にmetadata.mdが無い場合は1階層下の
+    サブフォルダも確認する（フラット形式・Project別形式の両対応）。
+    """
     try:
         assets_dir = outputs_dir / "generated_assets"
         if not assets_dir.exists():
             return []
         pending = []
         for asset_dir in sorted(assets_dir.iterdir()):
-            metadata_path = asset_dir / "metadata.md"
-            if not metadata_path.exists():
+            if not asset_dir.is_dir():
                 continue
-            try:
-                text = metadata_path.read_text(encoding="utf-8")
-            except Exception:
-                continue
-            m = re.search(r"^Status:\s*\n(.+)$", text, re.MULTILINE)
-            status = m.group(1).strip() if m else None
-            if status == "pending_review":
+
+            found_pending = _metadata_status(asset_dir / "metadata.md") == "pending_review"
+
+            if not found_pending:
+                for sub in asset_dir.iterdir():
+                    if not sub.is_dir():
+                        continue
+                    if _metadata_status(sub / "metadata.md") == "pending_review":
+                        found_pending = True
+                        break
+
+            if found_pending:
                 pending.append(asset_dir.name)
         return pending
     except Exception as e:

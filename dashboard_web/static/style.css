@@ -1470,3 +1470,233 @@ body {
   padding: 12px;
   margin-top: 10px;
 }
+
+/* ─── Quest96：DAF 制御盤（ワンクリック生成） ─── */
+.factory-panel {
+  background: linear-gradient(135deg, #1a1d27 0%, #232635 100%);
+  border: 1px solid var(--header-border, #2e3148);
+  color: #fff;
+}
+.factory-panel .card-title { color: #fff; }
+.factory-panel-desc {
+  color: #b7bbd6;
+  font-size: 0.82rem;
+  margin: 4px 0 14px;
+}
+.btn-factory {
+  background: linear-gradient(135deg, #6c63ff 0%, #00d4aa 100%);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 800;
+  padding: 14px 28px;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(108, 99, 255, 0.35);
+}
+.btn-factory:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.factory-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.12);
+}
+.factory-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #b7bbd6;
+}
+.factory-step[data-state="active"] { color: #ffd27a; }
+.factory-step[data-state="done"]   { color: #6ee7b7; }
+.factory-step[data-state="error"]  { color: #ff8b8b; }
+
+.factory-result { margin-top: 14px; }
+.factory-success {
+  background: rgba(110, 231, 183, 0.12);
+  border: 1px solid rgba(110, 231, 183, 0.4);
+  color: #6ee7b7;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+/* ─── Quest96：最新成果物カード ─── */
+.latest-artifact-body {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.latest-artifact-thumb {
+  width: 88px;
+  height: 76px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.latest-artifact-info { flex: 1; min-width: 200px; }
+.latest-artifact-name { font-weight: 700; font-size: 0.95rem; }
+.latest-artifact-meta { color: var(--muted); font-size: 0.8rem; margin: 4px 0 10px; }
+.latest-artifact-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ─── Quest96：スタンプ評価バッジ・拡大表示（ライトボックス） ─── */
+.sticker-thumb-img-wrap {
+  position: relative;
+  cursor: pointer;
+}
+.sticker-thumb-img-wrap:hover img { opacity: 0.85; }
+.sticker-rating-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 1rem;
+  line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4));
+  pointer-events: none;
+}
+
+.lightbox-modal {
+  max-width: 420px;
+  align-items: center;
+  text-align: center;
+}
+.lightbox-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.lightbox-image {
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 370 / 320;
+  object-fit: contain;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.lightbox-actions { display: flex; justify-content: center; gap: 10px; }
+.lightbox-rating { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.lightbox-rate-btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.lightbox-rate-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ─── Quest97：LINEスタンプ Project別成果物一覧・詳細 ─── */
+.sticker-project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 10px;
+}
+.sticker-project-card {
+  display: flex;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--surface2);
+}
+.sticker-project-thumb {
+  width: 70px;
+  height: 60px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.sticker-project-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+.sticker-project-info { flex: 1; min-width: 0; }
+.sticker-project-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sticker-project-meta { color: var(--muted); font-size: 0.76rem; margin: 4px 0 10px; }
+.sticker-project-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.sticker-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+/* ─── Quest98：Image Renderer表示 ─── */
+.renderer-info-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.renderer-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.renderer-future-note { color: var(--muted); font-size: 0.76rem; }
+
+/* ─── Quest99：🎨 Vega Creative Direction（Creative Brief） ─── */
+.creative-direction-project { font-weight: 700; font-size: 0.92rem; margin: 4px 0 12px; }
+.creative-direction-block { margin-bottom: 12px; }
+.creative-direction-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.creative-direction-text { font-size: 0.85rem; line-height: 1.5; }
+.creative-direction-raw {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.78rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+/* ─── Quest101：🎨 Reference Library ─── */
+.reference-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.reference-tag {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.76rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.reference-latest-meta { color: var(--muted); font-size: 0.76rem; }

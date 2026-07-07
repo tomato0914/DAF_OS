@@ -1,5 +1,5 @@
 """
-DAF OS Quest90 — Asset Generator v1 サービス
+DAF OS Quest90 — Asset Generator v1 サービス（Quest98でRenderer分離）
 
 Execution Planner（Quest88）とAsset Type Registry（Quest89）で「何を」「どう」
 作るかは計画できるようになったが、実際の成果物（Digital Asset）はまだ何も
@@ -11,14 +11,21 @@ v1では対象を line_sticker のみに限定する。
 ゴール：
   Execution Plan → LINEスタンプ素材一式 → CEOレビュー待ち
 
-v1の実装方針（あえてシンプルにする）：
-- 画像生成APIはまだ使わない。Pillowで仮画像（プレースホルダー）を生成する。
-  理由：(1) まずパイプライン完成を優先する (2) 画像生成API依存・コスト・
-  失敗要因を避ける (3) LINEスタンプ制作工程の自動化そのものを検証するため。
-  画像品質の改善はv2以降の課題（prompts.mdに将来の画像生成API用プロンプトを
-  保存しておき、v2でそのまま利用できるようにしている）。
+Quest98：責務分離（Image Generation Pipeline準備）
+- Quest90〜97まで、このファイルが直接Pillowで描画していたが、将来
+  画像生成AI（OpenAI・Google・FLUX・Stability AI等）へ切り替えられる
+  よう、実際の描画処理を services/image_generation_service.py
+  （Rendererの切替入口）→ services/renderers/pillow_renderer.py
+  （実際の描画実装）へ移した。このファイルは「どのRendererを使うか」を
+  知らない。
+- プロンプト文字列（prompts.md）の組み立ても services/prompt_builder_service.py
+  （Character Bible → Style Guide → Image Prompt）に委譲した。
+- Quest98では画像生成APIはまだ導入しない。Pillow Rendererのみで、
+  描画結果はQuest95までと完全に同じ（見た目は変えていない）。
 
-生成する成果物（outputs/generated_assets/line_sticker/）：
+生成する成果物（outputs/generated_assets/line_sticker/<project_id>/。
+Quest97でProject別に分離。project_id=="legacy"はQuest90〜96時代の
+フラット形式・出力先そのまま）：
   metadata.md / phrases.md / prompts.md /
   stamp_01.png 〜 stamp_40.png（370×320px, 透明背景）/
   main.png（240×240px）/ tab.png（96×74px）/ stickers.zip
@@ -36,11 +43,12 @@ Reviewer・Reviewed At・Review Decision・Review Reason・Published Atの各項
 CLI:
   python services/asset_generator_service.py
 
-重複生成防止：outputs/generated_assets/line_sticker/metadata.md が既に存在し、
-Statusが pending_review または approved の場合は再生成しない。
+重複生成防止：Project単位（outputs/generated_assets/line_sticker/<project_id>/
+metadata.md）で既にStatusが pending_review または approved の場合、その
+Projectは再生成しない。別Projectであれば新しく生成できる（Quest97）。
 
-Pillow未インストール・Execution Plan未生成・画像生成失敗のいずれでも例外を
-投げず、DAF OS全体を止めない。
+Renderer未インストール（Pillow未インストール等）・Execution Plan未生成・
+画像生成失敗のいずれでも例外を投げず、DAF OS全体を止めない。
 """
 
 import re
@@ -62,7 +70,6 @@ _ASSET_TYPE = "line_sticker"
 _GENERATED_ASSETS_DIR_NAME = "generated_assets"
 
 _STAMP_COUNT = 40
-_STAMP_SIZE = (370, 320)
 _MAIN_SIZE = (240, 240)
 _TAB_SIZE = (96, 74)
 
@@ -78,14 +85,6 @@ _GENERATED_BY = {
     "line_sticker": ["Lyra", "Vega", "Pulsar"],
 }
 
-# 日本語（かな漢字）を描画できるフォント候補。上から順に試し、
-# 使えるものが無ければPillowのデフォルトフォントにフォールバックする。
-_FONT_CANDIDATES = [
-    "/System/Library/Fonts/AquaKana.ttc",
-    "/System/Library/Fonts/Hiragino Sans GB.ttc",
-    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-]
-
 # LINEスタンプ用の40フレーズ（v1固定・決定的）。
 _PHRASES = [
     "おはよう", "ありがとう", "おつかれさま", "了解です", "こんにちは",
@@ -98,356 +97,50 @@ _PHRASES = [
     "また明日", "なるほど", "まかせて", "だいじょうぶ", "よし！",
 ]
 
-# Quest94 v2：スタンプごとのバリエーション（画像生成APIは使わず、Pillowのみで
-# 表情・文字レイアウト・装飾を組み合わせて視覚的な差を出す）。
-_EXPRESSIONS = ["normal", "smile", "sleepy", "surprised", "worried", "cheer", "sorry", "joy"]
-_LAYOUTS = ["bottom_center", "top_center", "speech_bubble", "diagonal", "large_text", "two_line"]
-_DECORATIONS = ["heart", "star", "note", "teardrop", "sparkle", "bg_circle", "pawprint"]
-
 
 def _output_dir(outputs_dir: Path) -> Path:
     return outputs_dir / _GENERATED_ASSETS_DIR_NAME / _ASSET_TYPE
+
+
+_LEGACY_PROJECT_ID = "legacy"
+
+
+def _slug_for_project(name: str) -> str:
+    """
+    Quest97：Project名から安全なフォルダ名（slug）を作る。
+    英数字トークン（あれば）を可読プレフィックスとして残しつつ、名前全体の
+    ハッシュを必ず付与する。日本語のProject名は「LINEスタンプ」のように
+    共通の英単語を含むことが多く、英数字トークンだけをslugにすると
+    別のProject同士が同じフォルダに衝突してしまうため（例："猫のLINEスタンプ"
+    と"犬のLINEスタンプ"が両方"line"になる）、ハッシュで一意性を担保する。
+    同じ名前なら常に同じslugになる（決定的）。
+    """
+    import hashlib
+    digest = hashlib.md5((name or "").encode("utf-8")).hexdigest()[:10]
+    tokens = re.findall(r"[A-Za-z0-9]+", name or "")
+    if tokens:
+        prefix = "_".join(t.lower() for t in tokens)[:40]
+        if prefix:
+            return f"{prefix}_{digest}"
+    return f"project_{digest}"
+
+
+def _project_output_dir(outputs_dir: Path, project_id: str) -> Path:
+    """
+    Quest97：Project別の出力先を返す。project_id=="legacy"の場合は
+    outputs/generated_assets/line_sticker/ 直下（Quest90〜96の旧形式）を、
+    それ以外は outputs/generated_assets/line_sticker/<project_id>/ を返す。
+    """
+    base = _output_dir(outputs_dir)
+    if project_id == _LEGACY_PROJECT_ID:
+        return base
+    return base / project_id
 
 
 def _extract_metadata_status(text: str) -> str | None:
     m = re.search(r"^Status:\s*\n(.+)$", text, re.MULTILINE)
     return m.group(1).strip() if m else None
 
-
-def _load_font(size: int):
-    from PIL import ImageFont
-    for path in _FONT_CANDIDATES:
-        try:
-            if Path(path).exists():
-                return ImageFont.truetype(path, size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
-
-
-def _draw_character(draw, cx: float, cy: float, radius: float, expression: str = "normal") -> None:
-    """
-    犬っぽいキャラクター（耳付きの丸い頭）を描画する。
-    Quest94 v2：expression（表情パターン）に応じて目・口を_draw_face()へ委譲する。
-    """
-    body_fill = (255, 224, 178, 255)
-    outline = (120, 90, 60, 255)
-
-    # 耳（先に描いて、頭で上から重ねる）
-    ear_r = radius * 0.42
-    draw.ellipse(
-        [cx - radius - ear_r * 0.3, cy - radius - ear_r * 0.5,
-         cx - radius + ear_r * 1.3, cy - radius + ear_r * 0.9],
-        fill=body_fill, outline=outline, width=3,
-    )
-    draw.ellipse(
-        [cx + radius - ear_r * 1.3, cy - radius - ear_r * 0.5,
-         cx + radius + ear_r * 0.3, cy - radius + ear_r * 0.9],
-        fill=body_fill, outline=outline, width=3,
-    )
-
-    # 頭（本体）
-    draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
-                 fill=body_fill, outline=outline, width=4)
-
-    _draw_face(draw, cx, cy, radius, expression)
-
-
-def _draw_face(draw, cx: float, cy: float, radius: float, expression: str) -> None:
-    """
-    Quest94 v2：表情パターン（_EXPRESSIONS）ごとに目・口の描き方を変える。
-    未知のexpressionが渡された場合はnormalにフォールバックする。
-    """
-    dark = (60, 40, 30, 255)
-    outline = (120, 90, 60, 255)
-    eye_r = max(radius * 0.08, 4)
-    eye_dx = radius * 0.42
-    eye_dy = radius * 0.15
-    lx, ly = cx - eye_dx, cy - eye_dy
-    rx, ry = cx + eye_dx, cy - eye_dy
-    mouth_cx, mouth_cy = cx, cy + radius * 0.1
-    mouth_r = radius * 0.35
-    lw = max(int(radius * 0.05), 2)
-
-    if expression == "sleepy":
-        for ex in (lx, rx):
-            draw.line([ex - eye_r * 1.4, ly, ex + eye_r * 1.4, ly], fill=dark, width=lw)
-        draw.arc([mouth_cx - mouth_r * 0.5, mouth_cy, mouth_cx + mouth_r * 0.5, mouth_cy + mouth_r * 0.5],
-                  start=20, end=160, fill=outline, width=lw)
-    elif expression == "surprised":
-        big_r = eye_r * 1.6
-        draw.ellipse([lx - big_r, ly - big_r, lx + big_r, ly + big_r], fill=dark)
-        draw.ellipse([rx - big_r, ly - big_r, rx + big_r, ly + big_r], fill=dark)
-        o_r = mouth_r * 0.35
-        draw.ellipse(
-            [mouth_cx - o_r, mouth_cy - o_r + mouth_r * 0.2, mouth_cx + o_r, mouth_cy + o_r + mouth_r * 0.2],
-            outline=outline, width=lw,
-        )
-    elif expression == "smile":
-        for ex in (lx, rx):
-            draw.arc([ex - eye_r * 1.3, ly - eye_r, ex + eye_r * 1.3, ly + eye_r * 1.3],
-                      start=200, end=340, fill=dark, width=lw)
-        draw.arc([mouth_cx - mouth_r, mouth_cy, mouth_cx + mouth_r, mouth_cy + mouth_r],
-                  start=10, end=170, fill=outline, width=lw + 1)
-    elif expression == "worried":
-        for ex, sign in ((lx, -1), (rx, 1)):
-            draw.ellipse([ex - eye_r, ly - eye_r, ex + eye_r, ly + eye_r], fill=dark)
-            draw.line([ex - eye_r * 1.5, ly - eye_r * 2.2, ex + sign * eye_r * 0.5, ly - eye_r * 3.2],
-                       fill=outline, width=lw)
-        draw.line([mouth_cx - mouth_r * 0.4, mouth_cy + mouth_r * 0.3,
-                    mouth_cx + mouth_r * 0.4, mouth_cy + mouth_r * 0.1], fill=outline, width=lw)
-    elif expression == "cheer":
-        for ex in (lx, rx):
-            draw.arc([ex - eye_r * 1.3, ly - eye_r, ex + eye_r * 1.3, ly + eye_r * 1.3],
-                      start=200, end=340, fill=dark, width=lw)
-        draw.pieslice([mouth_cx - mouth_r * 0.8, mouth_cy, mouth_cx + mouth_r * 0.8, mouth_cy + mouth_r],
-                       start=10, end=170, fill=(180, 60, 60, 255))
-    elif expression == "sorry":
-        for ex in (lx, rx):
-            draw.line([ex - eye_r, ly - eye_r, ex + eye_r, ly + eye_r], fill=dark, width=lw)
-            draw.line([ex - eye_r, ly + eye_r, ex + eye_r, ly - eye_r], fill=dark, width=lw)
-        draw.line([mouth_cx - mouth_r * 0.4, mouth_cy + mouth_r * 0.2,
-                    mouth_cx + mouth_r * 0.4, mouth_cy - mouth_r * 0.05], fill=outline, width=lw)
-    elif expression == "joy":
-        for ex in (lx, rx):
-            draw.arc([ex - eye_r * 1.4, ly - eye_r * 1.4, ex + eye_r * 1.4, ly + eye_r * 0.6],
-                      start=190, end=350, fill=dark, width=lw + 1)
-        draw.arc([mouth_cx - mouth_r * 1.1, mouth_cy - mouth_r * 0.1, mouth_cx + mouth_r * 1.1, mouth_cy + mouth_r * 1.1],
-                  start=10, end=170, fill=outline, width=lw + 1)
-    else:  # normal（未知のexpressionもここへフォールバック）
-        draw.ellipse([lx - eye_r, ly - eye_r, lx + eye_r, ly + eye_r], fill=dark)
-        draw.ellipse([rx - eye_r, ly - eye_r, rx + eye_r, ly + eye_r], fill=dark)
-        draw.arc([mouth_cx - mouth_r, mouth_cy, mouth_cx + mouth_r, mouth_cy + mouth_r],
-                  start=20, end=160, fill=outline, width=lw)
-
-
-# ──────────────────────────────────────────
-# Quest94 v2：装飾（_DECORATIONS）
-# ──────────────────────────────────────────
-
-_DECORATION_COLORS = {
-    "heart": (230, 70, 90, 255),
-    "star": (250, 200, 60, 255),
-    "note": (90, 90, 200, 255),
-    "teardrop": (100, 170, 230, 255),
-    "sparkle": (250, 170, 40, 255),
-    "bg_circle": (255, 220, 180, 110),
-    "pawprint": (150, 110, 80, 255),
-}
-
-
-def _draw_star(draw, cx: float, cy: float, r: float, fill) -> None:
-    import math
-    points = []
-    for i in range(10):
-        angle = math.pi / 5 * i - math.pi / 2
-        rad = r if i % 2 == 0 else r * 0.45
-        points.append((cx + rad * math.cos(angle), cy + rad * math.sin(angle)))
-    draw.polygon(points, fill=fill)
-
-
-def _draw_heart(draw, cx: float, cy: float, r: float, fill) -> None:
-    draw.ellipse([cx - r, cy - r * 0.6, cx, cy + r * 0.4], fill=fill)
-    draw.ellipse([cx, cy - r * 0.6, cx + r, cy + r * 0.4], fill=fill)
-    draw.polygon([(cx - r, cy), (cx + r, cy), (cx, cy + r * 1.3)], fill=fill)
-
-
-def _draw_note(draw, cx: float, cy: float, r: float, fill) -> None:
-    draw.ellipse([cx - r * 0.5, cy, cx + r * 0.5, cy + r], fill=fill)
-    draw.line([cx + r * 0.45, cy + r * 0.5, cx + r * 0.45, cy - r * 1.2], fill=fill, width=max(int(r * 0.18), 2))
-    draw.line([cx + r * 0.45, cy - r * 1.2, cx + r * 0.9, cy - r], fill=fill, width=max(int(r * 0.18), 2))
-
-
-def _draw_teardrop(draw, cx: float, cy: float, r: float, fill) -> None:
-    draw.ellipse([cx - r * 0.6, cy, cx + r * 0.6, cy + r * 1.2], fill=fill)
-    draw.polygon([(cx - r * 0.6, cy + r * 0.4), (cx + r * 0.6, cy + r * 0.4), (cx, cy - r)], fill=fill)
-
-
-def _draw_sparkle(draw, cx: float, cy: float, r: float, fill) -> None:
-    draw.line([cx - r, cy, cx + r, cy], fill=fill, width=max(int(r * 0.25), 2))
-    draw.line([cx, cy - r, cx, cy + r], fill=fill, width=max(int(r * 0.25), 2))
-    draw.line([cx - r * 0.7, cy - r * 0.7, cx + r * 0.7, cy + r * 0.7], fill=fill, width=max(int(r * 0.15), 1))
-    draw.line([cx - r * 0.7, cy + r * 0.7, cx + r * 0.7, cy - r * 0.7], fill=fill, width=max(int(r * 0.15), 1))
-
-
-def _draw_pawprint(draw, cx: float, cy: float, r: float, fill) -> None:
-    draw.ellipse([cx - r * 0.5, cy - r * 0.3, cx + r * 0.5, cy + r * 0.7], fill=fill)
-    for dx, dy in ((-0.5, -0.7), (-0.15, -0.95), (0.2, -0.95), (0.55, -0.7)):
-        pr = r * 0.22
-        draw.ellipse([cx + dx * r - pr, cy + dy * r - pr, cx + dx * r + pr, cy + dy * r + pr], fill=fill)
-
-
-def _draw_bg_circle(draw, w: int, h: int) -> None:
-    """装飾"bg_circle"（背景丸）。キャラクターを描く前に呼ぶ。"""
-    color = _DECORATION_COLORS["bg_circle"]
-    r = min(w, h) * 0.46
-    draw.ellipse([w / 2 - r, h * 0.42 - r, w / 2 + r, h * 0.42 + r], fill=color)
-
-
-def _draw_decorations(draw, w: int, h: int, decoration: str) -> None:
-    """
-    Quest94 v2：スタンプ左上・右上に小さな装飾アイコンを描画する
-    （bg_circleはキャラクター描画前に_draw_bg_circle()で別途処理済みのため、ここでは何もしない）。
-    """
-    if decoration == "bg_circle" or decoration not in _DECORATION_COLORS:
-        return
-    color = _DECORATION_COLORS[decoration]
-    r = min(w, h) * 0.07
-    positions = [(w * 0.14, h * 0.16), (w * 0.86, h * 0.16)]
-    for px, py in positions:
-        if decoration == "heart":
-            _draw_heart(draw, px, py, r, color)
-        elif decoration == "star":
-            _draw_star(draw, px, py, r, color)
-        elif decoration == "note":
-            _draw_note(draw, px, py, r, color)
-        elif decoration == "teardrop":
-            _draw_teardrop(draw, px, py, r, color)
-        elif decoration == "sparkle":
-            _draw_sparkle(draw, px, py, r, color)
-        elif decoration == "pawprint":
-            _draw_pawprint(draw, px, py, r, color)
-
-
-# ──────────────────────────────────────────
-# Quest94 v2：文字レイアウト（_LAYOUTS）
-# ──────────────────────────────────────────
-
-def _wrap_phrase(phrase: str, max_chars: int = 6) -> list[str]:
-    """
-    長いフレーズを自動で2行に折り返す。日本語はスペース区切りが無いため、
-    文字数がmax_charsを超える場合は中央付近で2分割する。
-    """
-    if len(phrase) <= max_chars:
-        return [phrase]
-    mid = (len(phrase) + 1) // 2
-    return [phrase[:mid], phrase[mid:]]
-
-
-def _measure_lines(draw, lines: list[str], font) -> list[tuple]:
-    sizes = []
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        sizes.append((line, bbox[2] - bbox[0], bbox[3] - bbox[1], bbox))
-    return sizes
-
-
-def _draw_lines(draw, sizes: list[tuple], font, cx: float, start_y: float) -> None:
-    """中央揃えで複数行のフレーズを白フチ＋濃い茶色で描画する（既存のスタンプ文字スタイルを踏襲）。"""
-    y = start_y
-    for line, tw, th, bbox in sizes:
-        x = cx - tw / 2 - bbox[0]
-        ty = y - bbox[1]
-        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
-            draw.text((x + dx, ty + dy), line, font=font, fill=(255, 255, 255, 255))
-        draw.text((x, ty), line, font=font, fill=(50, 35, 25, 255))
-        y += th + 6
-
-
-def _draw_speech_bubble(draw, sizes: list[tuple], font, w: int, h: int) -> None:
-    """layout="speech_bubble"：頭上に吹き出し風の枠を描き、その中にフレーズを入れる。"""
-    max_tw = max(tw for _, tw, _, _ in sizes)
-    total_th = sum(th for _, _, th, _ in sizes) + (len(sizes) - 1) * 6
-    pad_x, pad_y = 14, 10
-    bubble_w = max_tw + pad_x * 2
-    bubble_h = total_th + pad_y * 2
-    bx0 = w / 2 - bubble_w / 2
-    by0 = h * 0.05
-    bx1 = bx0 + bubble_w
-    by1 = by0 + bubble_h
-
-    draw.rounded_rectangle([bx0, by0, bx1, by1], radius=12,
-                            fill=(255, 255, 255, 235), outline=(120, 90, 60, 255), width=3)
-    draw.polygon(
-        [(w / 2 - 8, by1 - 2), (w / 2 + 8, by1 - 2), (w / 2, by1 + 14)],
-        fill=(255, 255, 255, 235), outline=(120, 90, 60, 255),
-    )
-    _draw_lines(draw, sizes, font, w / 2, by0 + pad_y)
-
-
-def _draw_diagonal_text(img, sizes: list[tuple], font, w: int, h: int) -> None:
-    """layout="diagonal"：フレーズを別レイヤーに描いてから回転させ、スタンプへ貼り付ける。"""
-    from PIL import Image as PILImage, ImageDraw as PILImageDraw
-
-    text = "\n".join(line for line, _, _, _ in sizes)
-    probe = PILImageDraw.Draw(PILImage.new("RGBA", (10, 10)))
-    bbox = probe.multiline_textbbox((0, 0), text, font=font, align="center", spacing=6)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-
-    pad = 12
-    layer = PILImage.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
-    layer_draw = PILImageDraw.Draw(layer)
-    x = pad - bbox[0]
-    y = pad - bbox[1]
-    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
-        layer_draw.multiline_text((x + dx, y + dy), text, font=font, fill=(255, 255, 255, 255), align="center", spacing=6)
-    layer_draw.multiline_text((x, y), text, font=font, fill=(50, 35, 25, 255), align="center", spacing=6)
-
-    rotated = layer.rotate(-14, expand=True, resample=PILImage.BICUBIC)
-    px = int(w / 2 - rotated.width / 2)
-    py = int(h - rotated.height - 18)
-    img.paste(rotated, (px, py), rotated)
-
-
-def _render_stamp(phrase: str, index: int) -> "Image.Image":
-    """
-    Quest94 v2：40枚が同じ画像の使い回しに見えないよう、indexから決定的に
-    表情（_EXPRESSIONS）・文字レイアウト（_LAYOUTS）・装飾（_DECORATIONS）を
-    選び、組み合わせて1枚のスタンプを描画する。周期が異なる（8・6・7）ため、
-    40枚の範囲では同じ組み合わせがほぼ重複しない。
-    """
-    from PIL import Image, ImageDraw
-
-    expression = _EXPRESSIONS[index % len(_EXPRESSIONS)]
-    layout = _LAYOUTS[index % len(_LAYOUTS)]
-    decoration = _DECORATIONS[index % len(_DECORATIONS)]
-
-    img = Image.new("RGBA", _STAMP_SIZE, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    w, h = _STAMP_SIZE
-    cx, cy, r = w / 2, h * 0.42, min(w, h) * 0.32
-
-    if decoration == "bg_circle":
-        _draw_bg_circle(draw, w, h)
-
-    _draw_character(draw, cx, cy, r, expression=expression)
-    _draw_decorations(draw, w, h, decoration)
-
-    if layout == "large_text":
-        font = _load_font(38)
-        lines = _wrap_phrase(phrase, max_chars=8)
-    elif layout == "two_line":
-        font = _load_font(26)
-        lines = _wrap_phrase(phrase, max_chars=3)
-    else:
-        font = _load_font(28)
-        lines = _wrap_phrase(phrase, max_chars=6)
-
-    sizes = _measure_lines(draw, lines, font)
-
-    if layout == "speech_bubble":
-        _draw_speech_bubble(draw, sizes, font, w, h)
-    elif layout == "diagonal":
-        _draw_diagonal_text(img, sizes, font, w, h)
-    elif layout == "top_center":
-        _draw_lines(draw, sizes, font, w / 2, h * 0.06)
-    else:  # bottom_center / large_text / two_line
-        total_h = sum(th for _, _, th, _ in sizes) + (len(sizes) - 1) * 6
-        _draw_lines(draw, sizes, font, w / 2, h - total_h - 24)
-
-    return img
-
-
-def _render_icon(size: tuple[int, int]) -> "Image.Image":
-    from PIL import Image, ImageDraw
-
-    img = Image.new("RGBA", size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    w, h = size
-    cx, cy = w / 2, h / 2
-    r = min(w, h) * 0.38
-    _draw_character(draw, cx, cy, r)
-    return img
 
 
 def _safe_line_sticker_plans(outputs_dir: Path) -> list[dict]:
@@ -459,28 +152,108 @@ def _safe_line_sticker_plans(outputs_dir: Path) -> list[dict]:
         return []
 
 
-def generate_assets(outputs_dir: Path | None = None) -> dict:
+def generate_assets(outputs_dir: Path | None = None, project_name: str | None = None) -> dict:
     """
-    outputs/execution_plans/ に line_sticker のExecution Planが存在する場合、
-    outputs/generated_assets/line_sticker/ にLINEスタンプ素材一式
-    （phrases.md / prompts.md / stamp_01.png〜stamp_40.png / main.png /
-    tab.png / metadata.md / stickers.zip）を生成する。
+    Quest97：outputs/execution_plans/ に登録されたline_stickerのExecution
+    Planを起点に、Project別（outputs/generated_assets/line_sticker/<slug>/）
+    にLINEスタンプ素材一式を生成する。
 
-    重複生成防止：既に metadata.md が存在し、Statusが pending_review または
-    approved の場合は再生成しない。
+    project_nameを指定した場合：そのProjectのExecution Planのみを対象に
+    1件だけ生成する（services/project_service.generate_project_assets()から
+    呼ばれる通常経路）。該当するExecution Planが無ければ"no_plan"を返す。
 
-    戻り値: {"status": "generated" | "skipped_existing" | "no_plan" | "error",
-             "asset_type": "line_sticker", ...}
+    project_nameを指定しない場合（例：CLI `python services/asset_generator_service.py`
+    の直接実行）：登録されている全line_sticker Execution Planを対象に、
+    Project単位でバッチ生成する。戻り値の"results"に各Projectの結果を含め、
+    1件でも新規生成があれば全体のstatusを"generated"とする。
+
+    重複生成防止：Project単位でmetadata.mdが既に存在し、Statusが
+    pending_review または approved の場合はそのProjectの再生成をスキップする
+    （別Projectであれば新しく生成できる）。
+
+    戻り値（project_name指定時）:
+      {"status": "generated" | "skipped_existing" | "no_plan" | "error",
+       "asset_type": "line_sticker", "project": str, "project_id": str, ...}
+    戻り値（project_name未指定・バッチ時）:
+      {"status": "generated" | "skipped_existing" | "no_plan" | "error",
+       "asset_type": "line_sticker", "results": [...]}
+
     Execution Planが無い・Pillow未インストール・画像生成失敗のいずれでも
     例外を投げず、DAF OS全体を止めない。
     """
     base_outputs_dir = outputs_dir or _OUTPUTS_DIR
-    target_dir = _output_dir(base_outputs_dir)
-    metadata_path = target_dir / "metadata.md"
-
     plans = _safe_line_sticker_plans(base_outputs_dir)
     if not plans:
         return {"status": "no_plan", "asset_type": _ASSET_TYPE}
+
+    if project_name is not None:
+        matching = [p for p in plans if p.get("project") == project_name]
+        if not matching:
+            return {"status": "no_plan", "asset_type": _ASSET_TYPE, "project": project_name}
+        return _generate_assets_for_project(matching[0].get("project") or project_name, base_outputs_dir)
+
+    # project_name未指定：登録済みの全line_sticker Planを対象にバッチ生成する
+    results = [
+        _generate_assets_for_project(p.get("project") or "LINEスタンプ", base_outputs_dir)
+        for p in plans
+    ]
+    if any(r.get("status") == "generated" for r in results):
+        overall_status = "generated"
+    elif any(r.get("status") == "error" for r in results):
+        overall_status = "error"
+    elif results:
+        overall_status = "skipped_existing"
+    else:
+        overall_status = "no_plan"
+    return {"status": overall_status, "asset_type": _ASSET_TYPE, "results": results}
+
+
+def _legacy_done_result(project_name: str, base_outputs_dir: Path) -> dict | None:
+    """
+    Quest97：Project名が旧形式（フラット・legacy）のmetadata.mdの"Project:"と
+    一致し、かつStatusがpending_review/approved済みの場合、そのdictを返す。
+    一致しない・未生成・読み込み失敗の場合はNoneを返す。
+
+    新形式のフォルダにはまだ何も無くても、同じProjectが既にlegacyとして
+    生成済みなら二重生成しないようにするための重複防止チェック
+    （generate_assets()導入前のQuest90〜96時代からある単一データを
+    誤って作り直さないため）。
+    """
+    legacy_dir = _output_dir(base_outputs_dir)
+    legacy_metadata = legacy_dir / "metadata.md"
+    if not legacy_metadata.exists():
+        return None
+    try:
+        text = legacy_metadata.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    project_m = re.search(r"^Project:\s*\n(.+)$", text, re.MULTILINE)
+    legacy_project = project_m.group(1).strip() if project_m else None
+    if legacy_project != project_name:
+        return None
+    status = _extract_metadata_status(text)
+    if status not in _DONE_STATUSES:
+        return None
+    return {
+        "status": "skipped_existing",
+        "asset_type": _ASSET_TYPE,
+        "project": project_name,
+        "project_id": _LEGACY_PROJECT_ID,
+        "existing_status": status,
+        "output_dir": str(legacy_dir),
+    }
+
+
+def _generate_assets_for_project(project_name: str, base_outputs_dir: Path) -> dict:
+    """
+    Quest97：1つのProject（project_name）について、Project別フォルダへ
+    LINEスタンプ素材一式（phrases.md / prompts.md / stamp_01.png〜stamp_40.png /
+    main.png / tab.png / metadata.md / stickers.zip）を生成する。
+    generate_assets()から呼ばれる内部ヘルパー。
+    """
+    project_id = _slug_for_project(project_name)
+    target_dir = _project_output_dir(base_outputs_dir, project_id)
+    metadata_path = target_dir / "metadata.md"
 
     if metadata_path.exists():
         try:
@@ -491,40 +264,56 @@ def generate_assets(outputs_dir: Path | None = None) -> dict:
             return {
                 "status": "skipped_existing",
                 "asset_type": _ASSET_TYPE,
+                "project": project_name,
+                "project_id": project_id,
                 "existing_status": existing_status,
                 "output_dir": str(target_dir),
             }
 
+    legacy_result = _legacy_done_result(project_name, base_outputs_dir)
+    if legacy_result:
+        return legacy_result
+
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        project = plans[0].get("project") or "LINEスタンプ"
+        project = project_name
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Quest98：Character Bibleを読み込み、Prompt Builder経由でprompts.mdを
+        # 組み立てる（Asset Generatorはプロンプトの中身を組み立てない）。
+        from services.prompt_builder_service import load_character_bible, build_prompts_for_phrases
+        from services.image_generation_service import (
+            render_stamp_image, render_icon_image, get_renderer_info,
+        )
+
+        character_bible = load_character_bible()
+        renderer_info = get_renderer_info()
 
         # phrases.md
         phrases_lines = [f"{i}. {p}" for i, p in enumerate(_PHRASES, start=1)]
         (target_dir / "phrases.md").write_text("\n".join(phrases_lines) + "\n", encoding="utf-8")
 
-        # prompts.md（将来の画像生成API用）
+        # prompts.md（将来の画像生成API用。Quest98からPrompt Builder経由で組み立てる）
+        prompts = build_prompts_for_phrases(_PHRASES, character_bible=character_bible)
         prompt_blocks = [
-            f"stamp_{i:02d}:\n"
-            f"A cute shiba inu LINE sticker saying \"{phrase}\", "
-            "simple flat illustration, transparent background"
-            for i, phrase in enumerate(_PHRASES, start=1)
+            f"stamp_{i:02d}:\n{prompt}"
+            for i, prompt in enumerate(prompts, start=1)
         ]
         (target_dir / "prompts.md").write_text("\n\n".join(prompt_blocks) + "\n", encoding="utf-8")
 
-        # スタンプ画像（仮画像・Pillow生成。Quest94 v2：表情・レイアウト・装飾のバリエーション付き）
+        # スタンプ画像（Quest98：Image Generation Service経由でRenderer
+        # （既定はPillow）へ委譲する。Asset Generatorはどの絵作りをしているか知らない）
         stamp_filenames = []
         for i, phrase in enumerate(_PHRASES, start=1):
             filename = f"stamp_{i:02d}.png"
-            img = _render_stamp(phrase, i - 1)
+            img = render_stamp_image(phrase, i - 1, character_bible=character_bible)
             img.save(target_dir / filename)
             stamp_filenames.append(filename)
 
         # main.png / tab.png
-        _render_icon(_MAIN_SIZE).save(target_dir / "main.png")
-        _render_icon(_TAB_SIZE).save(target_dir / "tab.png")
+        render_icon_image(_MAIN_SIZE, character_bible=character_bible).save(target_dir / "main.png")
+        render_icon_image(_TAB_SIZE, character_bible=character_bible).save(target_dir / "tab.png")
 
         # metadata.md
         file_list = stamp_filenames + ["main.png", "tab.png", "stickers.zip"]
@@ -537,6 +326,9 @@ def generate_assets(outputs_dir: Path | None = None) -> dict:
             "",
             "Asset Type:",
             _ASSET_TYPE,
+            "",
+            "Renderer:",
+            renderer_info.get("display_name", "unknown"),
             "",
             "Generated At:",
             generated_at,
@@ -583,11 +375,14 @@ def generate_assets(outputs_dir: Path | None = None) -> dict:
             zf.write(metadata_path, arcname="metadata.md")
 
         # Notification Center（Quest92）へ通知する。失敗しても生成自体は成功として扱う。
+        # Quest97：Project名をメッセージに含めることで、複数Projectを続けて
+        # 生成した場合でも(title, source, message)の重複防止に巻き込まれず、
+        # それぞれの通知が記録されるようにする。
         try:
             from services.notification_service import add_notification
             add_notification(
                 "Asset Generated",
-                "LINEスタンプ素材一式が生成されました。レビューしてください。",
+                f"{project} のLINEスタンプ素材一式が生成されました。レビューしてください。",
                 level="success",
                 source="asset_generator",
                 outputs_dir=base_outputs_dir,
@@ -599,40 +394,48 @@ def generate_assets(outputs_dir: Path | None = None) -> dict:
             "status": "generated",
             "asset_type": _ASSET_TYPE,
             "project": project,
+            "project_id": project_id,
             "output_dir": str(target_dir),
             "zip_path": str(zip_path),
             "stamp_count": len(stamp_filenames),
         }
     except Exception as e:
-        print(f"[警告] Asset Generatorの生成に失敗しました：{e}")
-        return {"status": "error", "asset_type": _ASSET_TYPE, "error": str(e)}
+        print(f"[警告] Asset Generatorの生成に失敗しました（{project_name}）：{e}")
+        return {"status": "error", "asset_type": _ASSET_TYPE, "project": project_name, "project_id": project_id, "error": str(e)}
 
 
 def generate_asset_generator_summary(outputs_dir: Path | None = None) -> str:
     """
-    outputs/generated_assets/line_sticker/metadata.md を読み込み、AI会議へ
-    注入する短いMarkdown要約に整形する（services/memory_service.py の
-    load_company_memory() から呼ばれる）。ファイル未存在・読み込み失敗の
-    いずれの場合も「現在、生成されたAssetはありません。」を返す。例外を投げない。
+    outputs/generated_assets/line_sticker/ 配下のProject別成果物（＋legacy）を
+    読み込み、AI会議へ注入する短いMarkdown要約に整形する
+    （services/memory_service.py の load_company_memory() から呼ばれる）。
+    Quest97：複数Projectがある場合は最新（generated_at降順の先頭）1件の
+    Statusを代表として示し、件数も併記する。1件も無い場合は
+    「現在、生成されたAssetはありません。」を返す。例外を投げない。
     """
     try:
         base = outputs_dir or _OUTPUTS_DIR
-        metadata_path = _output_dir(base) / "metadata.md"
-        if not metadata_path.exists():
+        projects = list_line_sticker_projects(outputs_dir=base)
+        if not projects:
             return _NO_DATA_SUMMARY
 
-        text = metadata_path.read_text(encoding="utf-8")
-        status = _extract_metadata_status(text) or "unknown"
+        latest = projects[0]
+        pid = latest["project_id"]
+        zip_rel = (
+            f"outputs/{_GENERATED_ASSETS_DIR_NAME}/{_ASSET_TYPE}/stickers.zip"
+            if pid == _LEGACY_PROJECT_ID
+            else f"outputs/{_GENERATED_ASSETS_DIR_NAME}/{_ASSET_TYPE}/{pid}/stickers.zip"
+        )
 
         lines = [
             "## Asset Generator Summary",
             "",
             "### Generated Assets",
             "",
-            f"- {_ASSET_TYPE}: {status}",
+            f"- {_ASSET_TYPE}: {len(projects)}件のProject（最新: {latest['project_name']} / {latest['status']}）",
             "",
             "### Output",
-            f"outputs/{_GENERATED_ASSETS_DIR_NAME}/{_ASSET_TYPE}/stickers.zip",
+            zip_rel,
             "",
             "### Recommendation",
             "CEOが生成物を確認してください。",
@@ -643,14 +446,91 @@ def generate_asset_generator_summary(outputs_dir: Path | None = None) -> str:
         return _NO_DATA_SUMMARY
 
 
+def _line_sticker_project_entry(dir_path: Path, metadata_path: Path, project_id: str) -> dict | None:
+    """
+    Quest97：1つのLINE Sticker Project（またはlegacyのフラット出力）の
+    metadata.mdからDashboard一覧向けのサマリを作る。読み込み失敗時はNoneを返す。
+    """
+    try:
+        text = metadata_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+    project_m = re.search(r"^Project:\s*\n(.+)$", text, re.MULTILINE)
+    generated_at_m = re.search(r"^Generated At:\s*\n(.+)$", text, re.MULTILINE)
+    stamp_files = sorted(f.name for f in dir_path.glob("stamp_*.png") if f.is_file())
+    zip_path = dir_path / "stickers.zip"
+
+    default_name = "（レガシー・旧形式）" if project_id == _LEGACY_PROJECT_ID else project_id
+    return {
+        "project_id": project_id,
+        "project_name": project_m.group(1).strip() if project_m else default_name,
+        "status": _extract_metadata_status(text) or "unknown",
+        "generated_at": generated_at_m.group(1).strip() if generated_at_m else None,
+        "files_count": len([f for f in dir_path.iterdir() if f.is_file()]),
+        "stamp_count": len(stamp_files),
+        "thumbnail": stamp_files[0] if stamp_files else None,
+        "zip_exists": zip_path.exists(),
+    }
+
+
+def list_line_sticker_projects(outputs_dir: Path | None = None) -> list[dict]:
+    """
+    Quest97：outputs/generated_assets/line_sticker/ 配下のProject別成果物
+    （新形式のサブフォルダ）と、Quest90〜96時代のフラット形式（legacy）を
+    まとめて一覧で返す（Dashboardの「LINEスタンプ Project別成果物」向け）。
+
+    戻り値: [{"project_id": str, "project_name": str, "status": str,
+              "generated_at": str | None, "files_count": int,
+              "stamp_count": int, "thumbnail": str | None,
+              "zip_exists": bool}, ...]
+    generated_atの新しい順（無ければ末尾）に並べる。ディレクトリ未存在・
+    読み込み失敗のいずれでも例外を投げず、空リストを返す。
+    """
+    try:
+        base = outputs_dir or _OUTPUTS_DIR
+        line_sticker_dir = _output_dir(base)
+        if not line_sticker_dir.exists():
+            return []
+
+        results = []
+
+        legacy_metadata = line_sticker_dir / "metadata.md"
+        if legacy_metadata.exists():
+            entry = _line_sticker_project_entry(line_sticker_dir, legacy_metadata, _LEGACY_PROJECT_ID)
+            if entry:
+                results.append(entry)
+
+        for sub in sorted(line_sticker_dir.iterdir()):
+            if not sub.is_dir():
+                continue
+            metadata_path = sub / "metadata.md"
+            if not metadata_path.exists():
+                continue
+            entry = _line_sticker_project_entry(sub, metadata_path, sub.name)
+            if entry:
+                results.append(entry)
+
+        results.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
+        return results
+    except Exception as e:
+        print(f"[警告] LINE Sticker Project一覧の取得に失敗しました：{e}")
+        return []
+
+
 def list_generated_assets(outputs_dir: Path | None = None) -> list[dict]:
     """
     outputs/generated_assets/*/metadata.md を読み込み専用でスキャンし、
     Dashboard（Quest93試験運用版）の「Generated Assets」タブ向けに構造化
     データで返す（Dashboard/CEO Home APIから呼ばれる）。
 
+    Quest97：line_sticker はProject別サブフォルダ（＋後方互換のlegacyフラット
+    形式）を持つため、他のAsset Type（フラット構造のまま）とは別に
+    list_line_sticker_projects()を使って1行1Projectで展開する。
+
     戻り値: [{"asset_type": str, "status": str, "files_count": int,
-              "generated_at": str | None, "zip_path": str | None}, ...]
+              "generated_at": str | None, "zip_path": str | None,
+              "project_id": str | None}, ...]
     ディレクトリ未存在・読み込み失敗のいずれでも例外を投げず、空リストを返す。
     """
     try:
@@ -661,8 +541,31 @@ def list_generated_assets(outputs_dir: Path | None = None) -> list[dict]:
 
         results = []
         for asset_dir in sorted(assets_root.iterdir()):
+            if not asset_dir.is_dir():
+                continue
+
+            if asset_dir.name == _ASSET_TYPE:
+                for project in list_line_sticker_projects(outputs_dir=base):
+                    pid = project["project_id"]
+                    sub_dir = _project_output_dir(base, pid)
+                    zip_path = sub_dir / "stickers.zip"
+                    results.append({
+                        "asset_type": _ASSET_TYPE,
+                        "project_id": pid,
+                        "status": project["status"],
+                        "files_count": project["files_count"],
+                        "generated_at": project["generated_at"],
+                        "zip_path": (
+                            f"outputs/{_GENERATED_ASSETS_DIR_NAME}/{_ASSET_TYPE}/stickers.zip"
+                            if pid == _LEGACY_PROJECT_ID and zip_path.exists()
+                            else f"outputs/{_GENERATED_ASSETS_DIR_NAME}/{_ASSET_TYPE}/{pid}/stickers.zip"
+                            if zip_path.exists() else None
+                        ),
+                    })
+                continue
+
             metadata_path = asset_dir / "metadata.md"
-            if not asset_dir.is_dir() or not metadata_path.exists():
+            if not metadata_path.exists():
                 continue
             try:
                 text = metadata_path.read_text(encoding="utf-8")
@@ -674,6 +577,7 @@ def list_generated_assets(outputs_dir: Path | None = None) -> list[dict]:
 
             results.append({
                 "asset_type": asset_dir.name,
+                "project_id": None,
                 "status": _extract_metadata_status(text) or "unknown",
                 "files_count": len([f for f in asset_dir.iterdir() if f.is_file()]),
                 "generated_at": generated_at_m.group(1).strip() if generated_at_m else None,
@@ -685,25 +589,27 @@ def list_generated_assets(outputs_dir: Path | None = None) -> list[dict]:
         return []
 
 
-def get_line_sticker_detail(outputs_dir: Path | None = None) -> dict:
+def get_line_sticker_detail(outputs_dir: Path | None = None, project_id: str | None = None) -> dict:
     """
-    Quest94 v2：Dashboardの「LINEスタンプ生成結果」セクション向けに、
-    outputs/generated_assets/line_sticker/ の内容を構造化データで返す
-    （フォルダを開かなくてもmetadata・phrases・スタンプ一覧・zip有無を
-    確認できるようにするため）。
+    Quest94 v2で追加、Quest97でProject別対応。Dashboardの
+    「LINEスタンプ生成結果」詳細向けに、指定Project
+    （project_id未指定または"legacy"の場合はQuest90〜96時代のフラット形式）
+    の内容を構造化データで返す（フォルダを開かなくてもmetadata・phrases・
+    スタンプ一覧・zip有無を確認できるようにするため）。
 
-    戻り値: {"exists": bool, "output_dir": str, "status": str,
-             "metadata_text": str, "phrases_text": str,
-             "stamp_files": list[str], "main_exists": bool,
-             "tab_exists": bool, "zip_exists": bool}
+    戻り値: {"exists": bool, "project_id": str, "project_name": str | None,
+             "output_dir": str, "status": str, "metadata_text": str,
+             "phrases_text": str, "stamp_files": list[str],
+             "main_exists": bool, "tab_exists": bool, "zip_exists": bool}
     未生成・読み込み失敗のいずれでも例外を投げず、{"exists": False}を返す。
     """
+    pid = project_id or _LEGACY_PROJECT_ID
     try:
         base = outputs_dir or _OUTPUTS_DIR
-        target_dir = _output_dir(base)
+        target_dir = _project_output_dir(base, pid)
         metadata_path = target_dir / "metadata.md"
         if not target_dir.exists() or not metadata_path.exists():
-            return {"exists": False}
+            return {"exists": False, "project_id": pid}
 
         try:
             metadata_text = metadata_path.read_text(encoding="utf-8")
@@ -719,9 +625,12 @@ def get_line_sticker_detail(outputs_dir: Path | None = None) -> dict:
                 phrases_text = ""
 
         stamp_files = sorted(f.name for f in target_dir.glob("stamp_*.png") if f.is_file())
+        project_m = re.search(r"^Project:\s*\n(.+)$", metadata_text, re.MULTILINE)
 
         return {
             "exists": True,
+            "project_id": pid,
+            "project_name": project_m.group(1).strip() if project_m else None,
             "output_dir": str(target_dir),
             "status": _extract_metadata_status(metadata_text) or "unknown",
             "metadata_text": metadata_text,
@@ -733,11 +642,13 @@ def get_line_sticker_detail(outputs_dir: Path | None = None) -> dict:
         }
     except Exception as e:
         print(f"[警告] LINE Sticker詳細の取得に失敗しました：{e}")
-        return {"exists": False, "error": str(e)}
+        return {"exists": False, "project_id": pid, "error": str(e)}
 
 
 if __name__ == "__main__":
     # Quest90: Dashboard/main.pyの日次バッチを待たずに手動で再生成したい場合のCLI導線。
+    # Quest97: project_name未指定のため、登録済みの全line_sticker Execution Plan
+    # （複数Projectあれば全件）をバッチ生成する。
     #   python services/asset_generator_service.py
     result = generate_assets()
     print(f"[Asset Generator] {result}")

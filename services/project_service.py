@@ -169,7 +169,10 @@ def _auto_launch(project: dict, auto_launch_meeting: bool = False) -> dict:
     常に実行する。
     """
     project_path = Path(project["path"])
-    result = {"meeting": "skipped", "goals": "skipped", "issues": "skipped", "execution_plan": "skipped"}
+    result = {
+        "meeting": "skipped", "goals": "skipped", "issues": "skipped",
+        "execution_plan": "skipped", "creative_brief": "skipped",
+    }
 
     # 1. AI役員会議：既定では自動実行しない（コスト・レイテンシへの配慮。CEOの判断）。
     #    auto_launch_meeting=Trueを明示的に指定した場合のみ、
@@ -249,6 +252,20 @@ def _auto_launch(project: dict, auto_launch_meeting: bool = False) -> dict:
     except Exception as e:
         print(f"[警告] 自動起動：Execution Plan生成に失敗しました：{e}")
         result["execution_plan"] = "error"
+
+    # 5. Creative Brief生成（Quest99：Vega/Creative DirectorがCharacter Bible・
+    #    Style Guideを土台にProject単位のCreative Brief（設計方針）を作る。
+    #    LLM不使用・決定的な処理で、画像生成APIは呼ばない）
+    try:
+        from services.creative_brief_service import generate_creative_brief
+        brief_result = generate_creative_brief(
+            project["id"], project["name"],
+            vision=project["vision"], asset_type=project["asset_type"],
+        )
+        result["creative_brief"] = "generated" if brief_result.get("ok") else "error"
+    except Exception as e:
+        print(f"[警告] 自動起動：Creative Brief生成に失敗しました：{e}")
+        result["creative_brief"] = "error"
 
     return result
 
@@ -451,7 +468,9 @@ def generate_project_assets(
         asset_generation_result = None
         try:
             from services.asset_generator_service import generate_assets
-            asset_generation_result = generate_assets(outputs_dir=outputs_dir)
+            # Quest97：project_nameを指定し、このProjectだけを対象に生成する
+            # （指定しないと登録済みの全line_sticker Planがバッチ生成されてしまう）。
+            asset_generation_result = generate_assets(outputs_dir=outputs_dir, project_name=project["name"])
         except Exception as e:
             print(f"[警告] Asset生成に失敗しました（{project_id}）：{e}")
             asset_generation_result = {"status": "error", "error": str(e)}

@@ -87,11 +87,15 @@
     <div class="card-title">🎨 Generated Assets</div>
     <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
   </div>
-  <!-- LINEスタンプ生成結果（Quest94 v2）：フォルダを開かなくても成果物を確認できるようにする -->
-  <div class="card full" id="lineStickerDetailContent">
-    <div class="card-title">🐶 LINEスタンプ生成結果</div>
+  <!-- Image Renderer表示（Quest98：将来Renderer切替できる設計の入口を可視化） -->
+  <div class="card full" id="rendererInfoContent" style="display:none"></div>
+  <!-- LINEスタンプ Project別成果物一覧（Quest94 v2で追加、Quest97でProject別対応） -->
+  <div class="card full" id="lineStickerProjectListContent">
+    <div class="card-title">🐶 LINEスタンプ Project別成果物</div>
     <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
   </div>
+  <!-- 選択したProjectの詳細（「詳細を見る」クリックで表示） -->
+  <div class="card full" id="lineStickerDetailContent" style="display:none"></div>
 </main>
 
 <!-- Notificationsタブ（Dashboard v1試験運用版） -->
@@ -111,6 +115,27 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeRejectModal()">キャンセル</button>
       <button class="btn btn-danger" onclick="submitReject()">却下する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quest96：スタンプ拡大表示（ライトボックス） -->
+<div class="modal-backdrop" id="stampLightbox" style="display:none" onclick="closeLightboxOnBackdrop(event)">
+  <div class="modal lightbox-modal">
+    <div class="lightbox-header">
+      <span id="lightboxCounter">1 / 40</span>
+      <button class="btn btn-ghost" onclick="closeLightbox()">✕ 閉じる</button>
+    </div>
+    <img id="lightboxImage" class="lightbox-image" src="" alt="">
+    <div class="lightbox-actions">
+      <button class="btn" onclick="lightboxPrev()">◀ 前へ</button>
+      <a class="btn btn-approve" id="lightboxDownload" href="" download>⬇ ダウンロード</a>
+      <button class="btn" onclick="lightboxNext()">次へ ▶</button>
+    </div>
+    <div class="lightbox-rating">
+      <button class="lightbox-rate-btn" id="lightboxRate_good" onclick="rateCurrentStamp('good')">👍 良い</button>
+      <button class="lightbox-rate-btn" id="lightboxRate_redo" onclick="rateCurrentStamp('redo')">🔄 再生成候補</button>
+      <button class="lightbox-rate-btn" id="lightboxRate_fav" onclick="rateCurrentStamp('fav')">⭐ お気に入り</button>
     </div>
   </div>
 </div>
@@ -136,7 +161,7 @@ function switchTab(tab) {
   if (activeBtn) activeBtn.classList.add('active');
   if (tab === 'approvals') fetchApprovals();
   if (tab === 'projects') fetchProjects();
-  if (tab === 'assets') { fetchGeneratedAssets(); fetchLineStickerDetail(); }
+  if (tab === 'assets') { fetchGeneratedAssets(); fetchLineStickerProjects(); fetchRendererInfo(); }
   if (tab === 'notifications') fetchNotifications();
 }
 
@@ -482,8 +507,22 @@ function renderCompletedCard(items) {
 
 function renderDashboard(data) {
   if (data.error) {
-    document.getElementById('tabDashboard').innerHTML =
-      `<div class="card full error-box">⚠️ ${esc(data.error)}</div>`;
+    // Quest96：制御盤・最新成果物カード・CEO Homeは、レガシーな
+    // dashboard.md（main.pyの日次バッチが生成するAI経営会議レポート）が
+    // 無くても常に表示する（CEOがまず触る「工場の制御盤」をレガシー
+    // パイプラインの有無に依存させないため）。
+    document.getElementById('tabDashboard').innerHTML = `
+      ${renderFactoryPanelCard()}
+      <div id="latestArtifactContainer"></div>
+      <div id="creativeDirectionContainer"></div>
+      <div id="referenceLibraryContainer"></div>
+      <div id="ceoHomeContainer"></div>
+      <div class="card full error-box">⚠️ ${esc(data.error)}</div>
+    `;
+    fetchCeoHome();
+    fetchLatestArtifact();
+    fetchCreativeDirection();
+    fetchReferenceLibrary();
     return;
   }
   document.getElementById('updatedTime').textContent = '更新: ' + (data.updated || '—');
@@ -499,6 +538,10 @@ function renderDashboard(data) {
   }
 
   const html = `
+    ${renderFactoryPanelCard()}
+    <div id="latestArtifactContainer"></div>
+    <div id="creativeDirectionContainer"></div>
+    <div id="referenceLibraryContainer"></div>
     <div id="ceoHomeContainer"></div>
 
     ${renderCeoInboxCard(data.ceo_inbox)}
@@ -554,6 +597,9 @@ function renderDashboard(data) {
   `;
   document.getElementById('tabDashboard').innerHTML = html;
   fetchCeoHome();
+  fetchLatestArtifact();
+  fetchCreativeDirection();
+  fetchReferenceLibrary();
 }
 
 function renderLauncherCard(count) {
@@ -1127,20 +1173,138 @@ function fetchGeneratedAssets() {
 }
 
 // ────────────────────────────────
-// LINEスタンプ生成結果（Quest94 v2）：フォルダを開かなくても
-// 40枚のサムネイル・main/tab・ZIP・metadataをDashboard上で確認できるようにする
+// Quest97：LINEスタンプ Project別成果物一覧＋詳細
+// フォルダを開かなくてもDashboard上でProject別に成果物を確認できるようにする
 // ────────────────────────────────
 
-function renderLineStickerDetail(data) {
-  let html = '<div class="card-title">🐶 LINEスタンプ生成結果</div>';
+function _lineStickerBaseUrl(projectId) {
+  return projectId === 'legacy'
+    ? '/generated-assets/line-sticker/'
+    : `/generated-assets/line-sticker/${encodeURIComponent(projectId)}/`;
+}
+
+let _lineStickerProjects = [];
+let _selectedLineStickerProjectId = null;
+
+function renderLineStickerProjectList(projects) {
+  _lineStickerProjects = projects || [];
+  let html = '<div class="card-title">🐶 LINEスタンプ Project別成果物</div>';
+
+  if (_lineStickerProjects.length === 0) {
+    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「Generate Assets」、またはダッシュボードの「🚀 スタンプを作る」から生成してください。</div>';
+    document.getElementById('lineStickerProjectListContent').innerHTML = html;
+    return;
+  }
+
+  html += '<div class="sticker-project-grid">';
+  _lineStickerProjects.forEach(p => {
+    const baseUrl = _lineStickerBaseUrl(p.project_id);
+    html += `
+      <div class="sticker-project-card">
+        ${p.thumbnail
+          ? `<img class="sticker-project-thumb" src="${baseUrl}${encodeURIComponent(p.thumbnail)}" alt="${esc(p.project_name)}">`
+          : '<div class="sticker-project-thumb sticker-project-thumb-empty">?</div>'}
+        <div class="sticker-project-info">
+          <div class="sticker-project-name">${esc(p.project_name)}</div>
+          <div class="sticker-project-meta">Status: ${esc(p.status)}　作成: ${esc(p.generated_at || '-')}</div>
+          <div class="sticker-project-actions">
+            ${p.zip_exists ? `<a class="btn btn-approve" href="${baseUrl}stickers.zip" download>⬇ ZIP</a>` : ''}
+            <button class="btn" onclick="showLineStickerDetail('${esc(p.project_id)}')">🔍 詳細を見る</button>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+
+  document.getElementById('lineStickerProjectListContent').innerHTML = html;
+}
+
+function fetchLineStickerProjects() {
+  fetch('/api/generated-assets/line-sticker')
+    .then(r => r.json())
+    .then(data => renderLineStickerProjectList(data.projects))
+    .catch(e => {
+      document.getElementById('lineStickerProjectListContent').innerHTML =
+        `<div class="card-title">🐶 LINEスタンプ Project別成果物</div>` +
+        `<div class="error-box">⚠️ 取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+// ────────────────────────────────
+// Quest98：Image Renderer表示（将来Renderer切替できる設計の入口を可視化）
+// ────────────────────────────────
+
+function renderRendererInfo(info) {
+  const box = document.getElementById('rendererInfoContent');
+  if (!box) return;
+  if (!info || !info.display_name) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  const others = (info.available || []).filter(id => id !== info.id);
+  box.innerHTML = `
+    <div class="card-title">🖼️ Image Renderer</div>
+    <div class="renderer-info-row">
+      <span class="renderer-badge">Renderer: ${esc(info.display_name)}</span>
+      ${others.length ? `<span class="renderer-future-note">（切替可能: ${others.map(esc).join(', ')}）</span>` : ''}
+    </div>
+  `;
+}
+
+function fetchRendererInfo() {
+  fetch('/api/renderer')
+    .then(r => r.json())
+    .then(data => renderRendererInfo(data))
+    .catch(() => {
+      const box = document.getElementById('rendererInfoContent');
+      if (box) box.style.display = 'none';
+    });
+}
+
+function closeLineStickerDetail() {
+  _selectedLineStickerProjectId = null;
+  const box = document.getElementById('lineStickerDetailContent');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+function showLineStickerDetail(projectId) {
+  _selectedLineStickerProjectId = projectId;
+  const box = document.getElementById('lineStickerDetailContent');
+  if (!box) return;
+  box.style.display = '';
+  box.innerHTML = '<div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>';
+  fetchLineStickerDetail(projectId);
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function fetchLineStickerDetail(projectId) {
+  fetch(`/api/generated-assets/line-sticker/${encodeURIComponent(projectId)}`)
+    .then(r => r.json())
+    .then(data => renderLineStickerDetail(projectId, data))
+    .catch(e => {
+      document.getElementById('lineStickerDetailContent').innerHTML =
+        `<div class="error-box">⚠️ LINEスタンプ詳細の取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+function renderLineStickerDetail(projectId, data) {
+  const title = (data && data.project_name) || projectId;
+  let html = `
+    <div class="sticker-detail-header">
+      <div class="card-title" style="margin-bottom:0">🐶 詳細：${esc(title)}</div>
+      <button class="btn btn-ghost" onclick="closeLineStickerDetail()">✕ 閉じる</button>
+    </div>
+  `;
 
   if (!data || !data.exists) {
-    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「Generate Assets」から生成してください。</div>';
+    html += '<div class="ceo-brief-empty">このProjectのLINEスタンプはまだ生成されていません。</div>';
     document.getElementById('lineStickerDetailContent').innerHTML = html;
     return;
   }
 
-  const baseUrl = '/generated-assets/line-sticker/';
+  const baseUrl = _lineStickerBaseUrl(projectId);
 
   html += `
     <div class="sticker-summary">
@@ -1163,12 +1327,32 @@ function renderLineStickerDetail(data) {
   html += '</div>';
 
   const stampFiles = data.stamp_files || [];
-  html += `<div class="card-title" style="font-size:0.85rem;margin-top:16px">スタンプ一覧（${stampFiles.length}枚）</div>`;
+  _currentStampFiles = stampFiles;
+  _currentStampBaseUrl = baseUrl;
+  html += `<div class="card-title" style="font-size:0.85rem;margin-top:16px">スタンプ一覧（${stampFiles.length}枚・クリックで拡大）</div>`;
   html += '<div class="sticker-grid">';
-  stampFiles.forEach(f => {
-    html += `<div class="sticker-thumb"><img src="${baseUrl}${encodeURIComponent(f)}" alt="${esc(f)}" loading="lazy"><div class="sticker-thumb-label">${esc(f)}</div></div>`;
+  stampFiles.forEach((f, i) => {
+    const rating = _stampRatings[f];
+    html += `
+      <div class="sticker-thumb">
+        <div class="sticker-thumb-img-wrap" onclick="openLightbox(${i})">
+          <img src="${baseUrl}${encodeURIComponent(f)}" alt="${esc(f)}" loading="lazy">
+          <span class="sticker-rating-badge" data-filename="${esc(f)}">${rating ? RATING_ICONS[rating] : ''}</span>
+        </div>
+        <div class="sticker-thumb-label">${esc(f)}</div>
+      </div>
+    `;
   });
   html += '</div>';
+
+  if (data.phrases_text) {
+    html += `
+      <details class="log-section sticker-metadata">
+        <summary><div class="card-title">phrases.md を表示</div></summary>
+        <pre>${esc(data.phrases_text)}</pre>
+      </details>
+    `;
+  }
 
   if (data.metadata_text) {
     html += `
@@ -1180,16 +1364,6 @@ function renderLineStickerDetail(data) {
   }
 
   document.getElementById('lineStickerDetailContent').innerHTML = html;
-}
-
-function fetchLineStickerDetail() {
-  fetch('/api/generated-assets/line-sticker')
-    .then(r => r.json())
-    .then(data => renderLineStickerDetail(data))
-    .catch(e => {
-      document.getElementById('lineStickerDetailContent').innerHTML =
-        `<div class="error-box">⚠️ LINEスタンプ生成結果の取得に失敗しました: ${esc(String(e))}</div>`;
-    });
 }
 
 // ────────────────────────────────
@@ -1241,6 +1415,421 @@ function fetchNotifications() {
         `<div class="error-box">⚠️ Notificationsの取得に失敗しました: ${esc(String(e))}</div>`;
     });
 }
+
+// ────────────────────────────────
+// Quest96：ワンクリック生成（🚀 スタンプを作る）＋ 最新成果物カード
+// 既存の /api/projects/create・/api/projects/generate-assets・
+// /api/generated-assets 系エンドポイント（Quest93〜94で実装済み）をそのまま
+// 順番に呼び出すだけで完結させる（バックエンドの新規変更は不要）。
+// ────────────────────────────────
+
+const FACTORY_STEPS = [
+  { key: 'project', label: 'Project作成' },
+  { key: 'plan', label: 'Execution Plan生成' },
+  { key: 'asset', label: 'Asset生成' },
+  { key: 'review', label: 'Review一覧更新' },
+  { key: 'assets_list', label: 'Generated Assets一覧更新' },
+];
+
+const FACTORY_STEP_ICONS = { idle: '⬜', active: '⏳', done: '✅', error: '❌' };
+
+function renderFactoryPanelCard() {
+  const steps = FACTORY_STEPS.map(s => `
+    <div class="factory-step" id="factoryStep_${s.key}" data-state="idle">
+      <span class="factory-step-icon">⬜</span>
+      <span class="factory-step-label">${s.label}</span>
+    </div>
+  `).join('');
+
+  return `
+    <div class="card full factory-panel">
+      <div class="card-title">🏭 DAF 制御盤</div>
+      <p class="factory-panel-desc">
+        ボタン1つで「Project作成 → Execution Plan生成 → Asset生成 → レビュー確認」まで一気に進めます。
+      </p>
+      <button class="btn btn-factory" id="oneClickStampBtn" onclick="startOneClickStamp()">🚀 スタンプを作る</button>
+      <div class="factory-progress" id="factoryProgress" style="display:none">${steps}</div>
+      <div class="factory-result" id="factoryResult"></div>
+    </div>
+  `;
+}
+
+function _setFactoryStep(key, state) {
+  const el = document.getElementById(`factoryStep_${key}`);
+  if (!el) return;
+  el.dataset.state = state;
+  const icon = el.querySelector('.factory-step-icon');
+  if (icon) icon.textContent = FACTORY_STEP_ICONS[state] || '⬜';
+}
+
+function _resetFactoryProgress() {
+  FACTORY_STEPS.forEach(s => _setFactoryStep(s.key, 'idle'));
+  const result = document.getElementById('factoryResult');
+  if (result) result.innerHTML = '';
+  const progress = document.getElementById('factoryProgress');
+  if (progress) progress.style.display = '';
+}
+
+function _factoryError(message) {
+  const result = document.getElementById('factoryResult');
+  if (result) result.innerHTML = `<div class="error-box">⚠️ ${esc(message)}</div>`;
+}
+
+function startOneClickStamp() {
+  const btn = document.getElementById('oneClickStampBtn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中...';
+  _resetFactoryProgress();
+
+  const label = new Date().toLocaleString('ja-JP', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const projectName = `犬のLINEスタンプ ${label}`;
+
+  _setFactoryStep('project', 'active');
+
+  fetch('/api/projects/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: projectName,
+      asset_type: 'line_sticker',
+      vision: '犬好きの人が毎日使いたくなるLINEスタンプを作る。',
+      success_metrics: ['1作品公開'],
+    }),
+  })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ data }) => {
+      if (!data.ok) {
+        _setFactoryStep('project', 'error');
+        _factoryError(data.error || 'Projectの作成に失敗しました');
+        throw new Error('__factory_stop__');
+      }
+      _setFactoryStep('project', 'done');
+      _setFactoryStep('plan', 'active');
+      _setFactoryStep('asset', 'active');
+
+      return fetch('/api/projects/generate-assets', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id: data.id }),
+      });
+    })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ data }) => {
+      if (!data.ok) {
+        _setFactoryStep('plan', 'error');
+        _setFactoryStep('asset', 'error');
+        _factoryError(data.error || `Asset生成に失敗しました（status: ${data.status || 'unknown'}）`);
+        throw new Error('__factory_stop__');
+      }
+      _setFactoryStep('plan', 'done');
+      _setFactoryStep('asset', 'done');
+      _setFactoryStep('review', 'active');
+
+      return fetch('/api/generated-assets/line-sticker').then(r => r.json());
+    })
+    .then(() => {
+      _setFactoryStep('review', 'done');
+      _setFactoryStep('assets_list', 'active');
+      return Promise.all([
+        fetch('/api/generated-assets').then(r => r.json()),
+        fetch('/api/notifications').then(r => r.json()),
+        fetch('/api/dashboard/home').then(r => r.json()),
+      ]);
+    })
+    .then(() => {
+      _setFactoryStep('assets_list', 'done');
+      const result = document.getElementById('factoryResult');
+      if (result) result.innerHTML = '<div class="factory-success">🎉 LINEスタンプ生成完了</div>';
+
+      // 開いている可能性のあるタブ・CEO Home・最新成果物カードを最新化する
+      fetchLatestArtifact();
+      fetchCeoHome();
+      fetchCreativeDirection();
+      fetchReferenceLibrary();
+      if (currentTab === 'projects') fetchProjects();
+      if (currentTab === 'assets') {
+        fetchGeneratedAssets();
+        fetchLineStickerProjects();
+        if (_selectedLineStickerProjectId) fetchLineStickerDetail(_selectedLineStickerProjectId);
+      }
+      if (currentTab === 'notifications') fetchNotifications();
+    })
+    .catch(e => {
+      if (e.message !== '__factory_stop__') {
+        _factoryError('エラーが発生しました: ' + e);
+      }
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '🚀 スタンプを作る';
+    });
+}
+
+function renderLatestArtifactCard(projects) {
+  const container = document.getElementById('latestArtifactContainer');
+  if (!container) return;
+  const list = projects || [];
+  if (list.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // Quest97：list_line_sticker_projects()がgenerated_atの新しい順で返すため、
+  // 先頭が「Project別成果物のうち最新のもの」になる。
+  const latest = list[0];
+  const baseUrl = _lineStickerBaseUrl(latest.project_id);
+
+  container.innerHTML = `
+    <div class="card full latest-artifact-card">
+      <div class="card-title">🆕 最新成果物</div>
+      <div class="latest-artifact-body">
+        ${latest.thumbnail ? `<img class="latest-artifact-thumb" src="${baseUrl}${encodeURIComponent(latest.thumbnail)}" alt="${esc(latest.project_name)}">` : ''}
+        <div class="latest-artifact-info">
+          <div class="latest-artifact-name">${esc(latest.project_name)}</div>
+          <div class="latest-artifact-meta">作成: ${esc(latest.generated_at || '-')}　Status: ${esc(latest.status)}</div>
+          <div class="latest-artifact-actions">
+            ${latest.zip_exists ? `<a class="btn btn-approve" href="${baseUrl}stickers.zip" download>⬇ ZIP</a>` : ''}
+            <button class="btn" onclick="switchTab('assets')">👀 レビューへ移動</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function fetchLatestArtifact() {
+  fetch('/api/generated-assets/line-sticker')
+    .then(r => r.json())
+    .then(data => renderLatestArtifactCard(data.projects))
+    .catch(() => {
+      const container = document.getElementById('latestArtifactContainer');
+      if (container) container.innerHTML = '';
+    });
+}
+
+// ────────────────────────────────
+// Quest99：🎨 Vega Creative Direction（Creative Brief）
+// ────────────────────────────────
+
+function renderCreativeDirectionCard(briefs) {
+  const container = document.getElementById('creativeDirectionContainer');
+  if (!container) return;
+  const list = briefs || [];
+  if (list.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // list_creative_briefs()はproject_id昇順で返すため、末尾が最新Project。
+  const latest = list[list.length - 1];
+
+  container.innerHTML = `
+    <div class="card full creative-direction-card">
+      <div class="card-title">🎨 Vega Creative Direction</div>
+      <div class="creative-direction-project">${esc(latest.project_name || latest.project_id)}</div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">Creative Brief</div>
+        <div class="creative-direction-text">${esc(latest.vision || '（未設定）')}</div>
+      </div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">Character Direction</div>
+        <div class="creative-direction-text">${esc(latest.character_direction || '-')}</div>
+      </div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">Style Direction</div>
+        <div class="creative-direction-text">${esc(latest.style_direction || '-')}</div>
+      </div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">Prompt Direction</div>
+        <div class="creative-direction-text">${esc(latest.prompt_direction || '-')}</div>
+      </div>
+      <details class="log-section">
+        <summary><div class="card-title" style="font-size:0.8rem">creative_brief.md 全文を表示</div></summary>
+        <pre class="creative-direction-raw">${esc(latest.raw_text || '')}</pre>
+      </details>
+    </div>
+  `;
+}
+
+function fetchCreativeDirection() {
+  fetch('/api/creative-briefs')
+    .then(r => r.json())
+    .then(data => renderCreativeDirectionCard(data.briefs))
+    .catch(() => {
+      const container = document.getElementById('creativeDirectionContainer');
+      if (container) container.innerHTML = '';
+    });
+}
+
+// ────────────────────────────────
+// Quest101：🎨 Reference Library
+// ────────────────────────────────
+
+function renderReferenceLibraryCard(info) {
+  const container = document.getElementById('referenceLibraryContainer');
+  if (!container) return;
+  if (!info) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const count = Number(info.count || 0);
+  const tags = info.tags || [];
+  const latest = info.latest;
+
+  const tagsHtml = tags.length
+    ? tags.map(t => `<span class="reference-tag">${esc(t)}</span>`).join('')
+    : '<span class="creative-direction-text">（まだタグはありません）</span>';
+
+  const latestHtml = latest
+    ? `
+      <div class="creative-direction-text">
+        ${esc(latest.title || latest.filename || '（無題）')}
+        <span class="reference-latest-meta">（${esc(latest.category || '-')} ・ ${esc(latest.registered_at || '-')}）</span>
+      </div>
+    `
+    : '<div class="creative-direction-text">まだ参考画像は登録されていません。</div>';
+
+  container.innerHTML = `
+    <div class="card full reference-library-card">
+      <div class="card-title">🎨 Reference Library</div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">登録画像数</div>
+        <div class="creative-direction-text">${count}件</div>
+      </div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">タグ一覧</div>
+        <div class="reference-tags">${tagsHtml}</div>
+      </div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">最新登録画像</div>
+        ${latestHtml}
+      </div>
+      <div class="creative-direction-block">
+        <div class="creative-direction-label">Reference Summary</div>
+        <div class="creative-direction-text">${esc(info.summary || '')}</div>
+      </div>
+    </div>
+  `;
+}
+
+function fetchReferenceLibrary() {
+  fetch('/api/reference-library')
+    .then(r => r.json())
+    .then(data => renderReferenceLibraryCard(data))
+    .catch(() => {
+      const container = document.getElementById('referenceLibraryContainer');
+      if (container) container.innerHTML = '';
+    });
+}
+
+// ────────────────────────────────
+// Quest96：スタンプ評価（👍/🔄/⭐）— DB保存はせず、ブラウザのlocalStorageに
+// 一時保持する（ファイル名をキーにした軽量な状態）。
+// ────────────────────────────────
+
+const RATING_ICONS = { good: '👍', redo: '🔄', fav: '⭐' };
+let _stampRatings = {};
+
+function _loadStampRatings() {
+  try {
+    _stampRatings = JSON.parse(localStorage.getItem('daf_stamp_ratings') || '{}');
+  } catch (e) {
+    _stampRatings = {};
+  }
+}
+
+function _saveStampRatings() {
+  try {
+    localStorage.setItem('daf_stamp_ratings', JSON.stringify(_stampRatings));
+  } catch (e) {
+    // localStorageが使えない環境（プライベートモード等）では保存をあきらめるだけで良い
+  }
+}
+
+_loadStampRatings();
+
+function _updateGridBadge(filename) {
+  const badge = document.querySelector(`.sticker-rating-badge[data-filename="${CSS.escape(filename)}"]`);
+  if (badge) badge.textContent = _stampRatings[filename] ? RATING_ICONS[_stampRatings[filename]] : '';
+}
+
+// ────────────────────────────────
+// Quest96：スタンプ拡大表示（ライトボックス）— クリックで拡大・前後移動・
+// 現在の枚数表示・ダウンロードボタンを提供する。
+// ────────────────────────────────
+
+let _currentStampFiles = [];
+let _currentStampBaseUrl = '/generated-assets/line-sticker/';
+let _lightboxIndex = 0;
+
+function openLightbox(index) {
+  if (!_currentStampFiles.length) return;
+  _lightboxIndex = ((index % _currentStampFiles.length) + _currentStampFiles.length) % _currentStampFiles.length;
+  const lb = document.getElementById('stampLightbox');
+  if (lb) lb.style.display = '';
+  _renderLightbox();
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('stampLightbox');
+  if (lb) lb.style.display = 'none';
+}
+
+function closeLightboxOnBackdrop(e) {
+  if (e.target.id === 'stampLightbox') closeLightbox();
+}
+
+function lightboxPrev() { openLightbox(_lightboxIndex - 1); }
+function lightboxNext() { openLightbox(_lightboxIndex + 1); }
+
+function _renderLightbox() {
+  const filename = _currentStampFiles[_lightboxIndex];
+  if (!filename) return;
+  const baseUrl = _currentStampBaseUrl;
+  const img = document.getElementById('lightboxImage');
+  const counter = document.getElementById('lightboxCounter');
+  const dl = document.getElementById('lightboxDownload');
+  if (img) img.src = baseUrl + encodeURIComponent(filename);
+  if (counter) counter.textContent = `${_lightboxIndex + 1} / ${_currentStampFiles.length}`;
+  if (dl) {
+    dl.href = baseUrl + encodeURIComponent(filename);
+    dl.setAttribute('download', filename);
+  }
+  _renderLightboxRatingButtons(filename);
+}
+
+function _renderLightboxRatingButtons(filename) {
+  const current = _stampRatings[filename];
+  ['good', 'redo', 'fav'].forEach(key => {
+    const btn = document.getElementById(`lightboxRate_${key}`);
+    if (btn) btn.classList.toggle('active', current === key);
+  });
+}
+
+function rateCurrentStamp(rating) {
+  const filename = _currentStampFiles[_lightboxIndex];
+  if (!filename) return;
+  if (_stampRatings[filename] === rating) {
+    delete _stampRatings[filename]; // 同じ評価を再度押すと解除する
+  } else {
+    _stampRatings[filename] = rating;
+  }
+  _saveStampRatings();
+  _renderLightboxRatingButtons(filename);
+  _updateGridBadge(filename);
+}
+
+document.addEventListener('keydown', (e) => {
+  const lb = document.getElementById('stampLightbox');
+  if (!lb || lb.style.display === 'none') return;
+  if (e.key === 'ArrowLeft') lightboxPrev();
+  else if (e.key === 'ArrowRight') lightboxNext();
+  else if (e.key === 'Escape') closeLightbox();
+});
 
 // ────────────────────────────────
 // CEO Home（Dashboard v1試験運用版・ダッシュボードタブ最上部）
