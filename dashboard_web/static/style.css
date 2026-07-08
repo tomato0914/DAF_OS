@@ -1709,3 +1709,14 @@ body {
   border-radius: 6px;
   border: 1px solid var(--border);
 }
+
+/* ─── Quest103：Reference Image Analysis AI（Analyze / Edit パネル） ─── */
+.reference-edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 4px;
+  max-width: 480px;
+}
+.reference-edit-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.reference-edit-status { font-size: 0.78rem; color: var(--muted); }

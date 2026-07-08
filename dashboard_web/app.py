@@ -772,6 +772,84 @@ def serve_reference_image(filename):
     return send_from_directory(_REFERENCE_LIBRARY_DIR, filename)
 
 
+def _safe_reference_component(name: str) -> str | None:
+    """
+    Reference画像解析/更新API向けのcategory・filenameの安全性チェック。
+    スラッシュ・".."・空文字を拒否する（_safe_project_idと同じ方針だが、
+    filenameには"."を許可する必要があるため専用の正規表現を使う）。
+    """
+    if not name or not re.match(r"^[\w\-.]+$", name) or ".." in name:
+        return None
+    return name
+
+
+@app.route("/api/references/analyze", methods=["POST"])
+def api_references_analyze():
+    """
+    Quest103：指定した参考画像をAI解析し、tags/animal/color/mood/memoの
+    提案を返す（reference.jsonへは保存しない。CEOが確認・編集した上で
+    /api/references/update を呼んで初めて保存される）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        category = _safe_reference_component(str(data.get("category", "")))
+        filename = _safe_reference_component(str(data.get("filename", "")))
+        if not category or not filename:
+            return jsonify({"success": False, "error": "無効なcategory/filenameです"}), 400
+
+        image_path = _REFERENCE_LIBRARY_DIR / category / filename
+        if not image_path.exists():
+            return jsonify({"success": False, "error": "指定された画像が見つかりません"}), 404
+
+        from services.reference_analysis_service import analyze_reference_image
+        analysis = analyze_reference_image(str(image_path))
+
+        return jsonify({"success": bool(analysis.get("ok")), "analysis": analysis})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/references/update", methods=["POST"])
+def api_references_update():
+    """
+    Quest103：既存参考画像のtags/animal/color/mood/memoを更新する
+    （AI解析結果・CEOの手動編集を保存するためのAPI）。
+    指定しなかったフィールド・title/project_id等はそのまま保持される。
+    対象が存在しない場合は404を返す。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        category = _safe_reference_component(str(data.get("category", "")))
+        filename = _safe_reference_component(str(data.get("filename", "")))
+        if not category or not filename:
+            return jsonify({"ok": False, "error": "無効なcategory/filenameです"}), 400
+
+        raw_tags = data.get("tags")
+        if isinstance(raw_tags, str):
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        elif isinstance(raw_tags, list):
+            tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+        else:
+            tags = None
+
+        from services.reference_analysis_service import update_reference_metadata
+        result = update_reference_metadata(
+            category=category,
+            filename=filename,
+            tags=tags,
+            animal=data.get("animal") if "animal" in data else None,
+            color=data.get("color") if "color" in data else None,
+            mood=data.get("mood") if "mood" in data else None,
+            memo=data.get("memo") if "memo" in data else None,
+            outputs_dir=OUTPUTS_DIR,
+        )
+        if result.get("error") == "not_found":
+            return jsonify({"ok": False, "error": "指定された参考画像が見つかりません"}), 404
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ──────────────────────────────────────────
 # LINEスタンプ生成結果（Quest94 v2で追加、Quest97でProject別対応）
 # フォルダを開かなくてもDashboard上でProject別に40枚のスタンプ・main/tab・

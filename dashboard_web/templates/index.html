@@ -1787,8 +1787,11 @@ function _populateReferenceSelects() {
   }
 }
 
+let _referenceRaw = [];
+
 function renderReferenceList(references) {
   const list = references || [];
+  _referenceRaw = list;
   let html = '<div class="card-title">🖼️ Reference一覧（' + list.length + '件）</div>';
 
   if (list.length === 0) {
@@ -1798,11 +1801,11 @@ function renderReferenceList(references) {
       <div class="table-scroll">
       <table class="simple-table">
         <thead>
-          <tr><th>画像</th><th>Title</th><th>Category</th><th>Project</th><th>Tags</th><th>Description</th><th>登録日時</th></tr>
+          <tr><th>画像</th><th>Title</th><th>Category</th><th>Project</th><th>Tags</th><th>Description</th><th>登録日時</th><th>AI解析</th></tr>
         </thead>
         <tbody>
     `;
-    list.forEach(r => {
+    list.forEach((r, idx) => {
       const imgUrl = `/reference-library/${encodeURIComponent(r.category || '')}/${encodeURIComponent(r.filename || '')}`;
       const tags = (r.tags || []).map(t => `<span class="reference-tag">${esc(t)}</span>`).join(' ');
       html += `
@@ -1814,6 +1817,29 @@ function renderReferenceList(references) {
           <td>${tags || '-'}</td>
           <td>${esc(r.memo || '-')}</td>
           <td>${esc(r.registered_at || '-')}</td>
+          <td><button class="btn btn-ghost" onclick="toggleReferenceEditPanel(${idx})">✨ Analyze / Edit</button></td>
+        </tr>
+        <tr id="refEditRow_${idx}" class="reference-edit-row" style="display:none">
+          <td colspan="8">
+            <div class="reference-edit-panel">
+              <div class="reference-edit-actions">
+                <button class="btn" id="refAnalyzeBtn_${idx}" onclick="analyzeReferenceWithAI(${idx})">🤖 Analyze with AI</button>
+                <span class="reference-edit-status" id="refAnalyzeStatus_${idx}"></span>
+              </div>
+              <label class="project-form-label">Tags（カンマ区切り）</label>
+              <input type="text" class="project-input" id="refEditTags_${idx}" value="${esc((r.tags || []).join(', '))}">
+              <label class="project-form-label">Animal</label>
+              <input type="text" class="project-input" id="refEditAnimal_${idx}" value="${esc(r.animal || '')}">
+              <label class="project-form-label">Color</label>
+              <input type="text" class="project-input" id="refEditColor_${idx}" value="${esc(r.color || '')}">
+              <label class="project-form-label">Mood</label>
+              <input type="text" class="project-input" id="refEditMood_${idx}" value="${esc(r.mood || '')}">
+              <label class="project-form-label">Memo（Description）</label>
+              <textarea class="project-input" id="refEditMemo_${idx}" rows="2">${esc(r.memo || '')}</textarea>
+              <button class="btn btn-approve" onclick="saveReferenceAnalysis(${idx})">💾 Save Analysis</button>
+              <span class="reference-edit-status" id="refSaveStatus_${idx}"></span>
+            </div>
+          </td>
         </tr>
       `;
     });
@@ -1821,6 +1847,73 @@ function renderReferenceList(references) {
   }
 
   document.getElementById('referenceListContent').innerHTML = html;
+}
+
+function toggleReferenceEditPanel(idx) {
+  const row = document.getElementById(`refEditRow_${idx}`);
+  if (!row) return;
+  row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function analyzeReferenceWithAI(idx) {
+  const r = _referenceRaw[idx];
+  if (!r) return;
+  const btn = document.getElementById(`refAnalyzeBtn_${idx}`);
+  const statusEl = document.getElementById(`refAnalyzeStatus_${idx}`);
+  btn.disabled = true;
+  btn.textContent = '⏳ 解析中...';
+  statusEl.textContent = '';
+
+  fetch('/api/references/analyze', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ category: r.category, filename: r.filename }),
+  })
+    .then(resp => resp.json())
+    .then(data => {
+      const a = data.analysis || {};
+      document.getElementById(`refEditTags_${idx}`).value = (a.tags || []).join(', ');
+      document.getElementById(`refEditAnimal_${idx}`).value = a.animal || '';
+      document.getElementById(`refEditColor_${idx}`).value = a.color || '';
+      document.getElementById(`refEditMood_${idx}`).value = a.mood || '';
+      document.getElementById(`refEditMemo_${idx}`).value = a.memo || '';
+      statusEl.textContent = data.success
+        ? '✅ AI解析結果を反映しました（内容を確認・編集してSaveしてください）'
+        : `⚠️ ${a.memo || data.error || 'AI解析に失敗しました'}`;
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '🤖 Analyze with AI';
+    });
+}
+
+function saveReferenceAnalysis(idx) {
+  const r = _referenceRaw[idx];
+  if (!r) return;
+  const statusEl = document.getElementById(`refSaveStatus_${idx}`);
+  const tags = document.getElementById(`refEditTags_${idx}`).value;
+  const animal = document.getElementById(`refEditAnimal_${idx}`).value;
+  const color = document.getElementById(`refEditColor_${idx}`).value;
+  const mood = document.getElementById(`refEditMood_${idx}`).value;
+  const memo = document.getElementById(`refEditMemo_${idx}`).value;
+
+  statusEl.textContent = '⏳ 保存中...';
+  fetch('/api/references/update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ category: r.category, filename: r.filename, tags, animal, color, mood, memo }),
+  })
+    .then(resp => resp.json())
+    .then(data => {
+      if (data.ok) {
+        statusEl.textContent = '✅ 保存しました';
+        fetchReferences();
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || '保存に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; });
 }
 
 function fetchReferences() {
