@@ -1273,14 +1273,76 @@ function renderLineStickerProjectList(projects) {
           <div class="sticker-project-actions">
             ${p.zip_exists ? `<a class="btn btn-approve" href="${baseUrl}stickers.zip" download>⬇ ZIP</a>` : ''}
             <button class="btn" onclick="showLineStickerDetail('${esc(p.project_id)}')">🔍 詳細を見る</button>
+            <button class="btn" onclick="runQualityCheck('${esc(p.project_id)}', this)">🧪 Run Quality Check</button>
           </div>
         </div>
       </div>
     `;
   });
   html += '</div>';
+  html += '<div id="qualityCheckResultContent"></div>';
 
   document.getElementById('lineStickerProjectListContent').innerHTML = html;
+}
+
+// ────────────────────────────────
+// Quest106：🧪 Quality Control Engine（Pythonの決定的ルールのみで判定。
+// AI Review・OpenRouterは呼ばない）
+// ────────────────────────────────
+
+const QUALITY_STATUS_ICON = { PASS: '✅', WARNING: '⚠️', FAIL: '❌' };
+
+function renderQualityReport(projectId, report) {
+  const container = document.getElementById('qualityCheckResultContent');
+  if (!container) return;
+
+  const overallIcon = report.passed ? '✅ PASS' : '❌ FAIL';
+  const rows = (report.checks || []).map(c => `
+    <tr>
+      <td>${esc(c.name)}</td>
+      <td>${QUALITY_STATUS_ICON[c.status] || ''} ${esc(c.status)}</td>
+      <td>${esc(c.detail || '')}</td>
+    </tr>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">🧪 Quality Report（${esc(projectId)}）</div>
+      <div class="creative-direction-text">${overallIcon}　Score: ${Number(report.score || 0)} / 100</div>
+      <div class="table-scroll" style="margin-top:8px">
+        <table class="simple-table">
+          <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function runQualityCheck(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 判定中...'; }
+
+  fetch('/api/quality/check', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ asset_type: 'line_sticker', project_id: projectId }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        renderQualityReport(projectId, data.report);
+      } else {
+        const container = document.getElementById('qualityCheckResultContent');
+        if (container) container.innerHTML = `<div class="card full error-box">⚠️ Quality Checkに失敗しました: ${esc(data.error || '')}</div>`;
+      }
+    })
+    .catch(e => {
+      const container = document.getElementById('qualityCheckResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🧪 Run Quality Check'; }
+    });
 }
 
 function fetchLineStickerProjects() {

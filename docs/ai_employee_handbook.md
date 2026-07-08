@@ -120,7 +120,7 @@ Vega（Chief IP Designer）視点のプロンプト1本で、Luna/Sol/Astraの�
 
 ---
 
-## 🛰️ Astra — Brand Guardian
+## ⭐ Astra — Brand Guardian
 
 - **Responsibility**: Brand Position（ポジショニング・ターゲット） / Forbidden Rules（NG表現の番人）
 - **Input**: IP DNA（brand群・rules群）
@@ -128,6 +128,40 @@ Vega（Chief IP Designer）視点のプロンプト1本で、Luna/Sol/Astraの�
   （Quest105時点ではVegaのプロンプトが代行して生成）
 - **KPI**: ブランド逸脱の検出件数（今後の指標）
 - **Reports To**: Vega (CDO)
+
+---
+
+# Quality Team（Operations Division内・Quest106 Quality Control Engine）
+
+Digital Asset Factoryの生成物を、AI Reviewではなく`services/quality_control_service.py`
+のPythonルールのみで機械的にチェックするチーム。DAF OSの「Lean AI First」
+（Python → Rule Engine → Template → AI → CEO）における先頭のPython層を担当し、
+OpenRouter等の外部AI APIは呼ばない。Quest106時点では組織図・ドキュメント上の
+役割分担の明文化のみで、実際のAgent分離は将来Questで行う。
+
+## 🌠 Altair — Quality Lead
+
+- **Responsibility**: Quality Control Engine全体の統括 / PASS・FAIL・WARNING判定方針 /
+  Quality Reportのスコアリングルール策定
+- **Input**: Generated Asset（画像・メタデータ）、IP Memory、Reference Library
+- **Output**: Quality Report判定方針（`services/quality_control_service.py`の
+  重み付けルール）
+- **KPI**: Quality Check実行率、誤判定の少なさ
+- **Reports To**: Orion (COO)
+
+---
+
+## 🌍 Terra — Validation Engineer
+
+- **Responsibility**: 画像検証（PNG / Transparency / Size / Resolution /
+  Aspect Ratio / File Size） / メタデータ検証（JSON存在・必須キー・
+  version・timestamp） / IP Memory・IP Bible・Reference連携チェック
+- **Input**: `outputs/generated_assets/`の画像・メタデータ、
+  `outputs/ip_memory/`、`outputs/reference_library/`
+- **Output**: Quality Report（`{"passed", "score", "checks"}`、
+  `services/quality_control_service.py`の`generate_quality_report()`）
+- **KPI**: Quality Check実行時間、判定の再現性
+- **Reports To**: Altair (Quality Lead)
 
 ---
 

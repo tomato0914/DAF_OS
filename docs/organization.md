@@ -213,6 +213,8 @@ Lead: Nova (CMO)
 Lead: Orion (COO)
 Operations・Workflow・KPI・Quality・Reflectionを担当。Weekly Board Meeting
 （Quest82）・KPI Alert（Quest78）・Reflection（Quest61）等の運用を統括する。
+Quest106でQuality Team（後述）を新設し、Digital Asset Factoryの生成物に対する
+機械的な品質チェックを担当させる。
 
 ## Memory & Intelligence
 Lead: Cosmos (CIO)
@@ -291,12 +293,38 @@ Responsibilities:
 - Color Palette
 - Style Rules
 
-## 🛰️ Astra — Brand Guardian
+## ⭐ Astra — Brand Guardian
 Reports To: Vega (CDO)
 
 Responsibilities:
 - Brand Position（ポジショニング・ターゲット）
 - Forbidden Rules（NG表現・一貫性の番人）
+
+---
+
+# Quality Team（Quest106・Operations Division内）
+
+Digital Asset Factoryの生成物（LINEスタンプ等）を、AI Reviewではなく
+Pythonの決定的なルールだけで機械的にチェックするチーム
+（`services/quality_control_service.py`）。DAF OSの「Lean AI First」
+方針（Python → Rule Engine → Template → AI → CEOの優先順位）における、
+最も安価で高速な先頭のPython層を担当する。Quest106時点では組織図・
+ドキュメント上の役割分担の明文化のみで、実際のAgent分離は将来Questで行う。
+
+## 🌠 Altair — Quality Lead
+Reports To: Orion (COO)
+
+Responsibilities:
+- Quality Control Engine全体の統括（PASS / FAIL / WARNING判定方針）
+- Quality Reportのスコアリングルール策定
+
+## 🌍 Terra — Validation Engineer
+Reports To: Altair (Quality Lead)
+
+Responsibilities:
+- 画像検証（PNG / Transparency / Size / Resolution / Aspect Ratio / File Size）
+- メタデータ検証（JSON存在・必須キー・version・timestamp）
+- IP Memory・IP Bible・Reference連携チェック
 
 ---
 

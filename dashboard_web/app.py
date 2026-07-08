@@ -1089,6 +1089,52 @@ def api_notifications():
         return jsonify({"notifications": [], "error": str(e)}), 500
 
 
+# ──────────────────────────────────────────
+# Quality Control Engine（Quest106）
+# Pythonの決定的なルールのみで生成物を判定するFactory品質管理。
+# AI Review・OpenRouterは呼ばない（services/quality_control_service.py参照）。
+# 専用タブは設けず、Generated Assets（LINEスタンプ）タブから
+# 「Run Quality Check」で実行する。
+# ──────────────────────────────────────────
+
+@app.route("/api/quality/check", methods=["POST"])
+def api_quality_check():
+    """
+    指定Asset（現状はLINEスタンプ生成物のみ対応）に対してQuality Report
+    （PASS/WARNING/FAILの一覧・スコア・総合判定）を生成する。IP名・
+    project_idは任意（未指定でもエラーにはならず、該当チェックはWARNING
+    扱いになる）。IP Memory・Reference Libraryへは一切書き込まない。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        asset_type = str(data.get("asset_type", "")).strip()
+        project_id_raw = str(data.get("project_id", "")).strip() or "legacy"
+        ip_name = str(data.get("ip_name", "")).strip() or None
+        reference_project_id = str(data.get("reference_project_id", "")).strip() or None
+
+        if asset_type != "line_sticker":
+            return jsonify({"ok": False, "error": "現在対応しているasset_typeはline_stickerのみです"}), 400
+
+        safe_project_id = _safe_project_id(project_id_raw)
+        if not safe_project_id:
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        asset_dir = _LINE_STICKER_DIR if safe_project_id == "legacy" else (_LINE_STICKER_DIR / safe_project_id)
+        if not asset_dir.exists():
+            return jsonify({"ok": False, "error": "指定されたAssetフォルダが見つかりません"}), 404
+
+        from services.quality_control_service import generate_quality_report
+        report = generate_quality_report(
+            asset_dir,
+            ip_name=ip_name,
+            project_id=reference_project_id,
+            outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify({"ok": True, "report": report})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 def _compute_next_action(pending_review_assets, pending_implementation_count, active_projects_count):
     """CEO Homeの「Next Action」を優先順位ルールに従って決定する。"""
     if pending_review_assets:
