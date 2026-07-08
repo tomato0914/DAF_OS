@@ -1165,7 +1165,8 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
             </select>
             <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
             <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
-            <button class="btn btn-approve" onclick="exportProject('${esc(p.id)}', this)">⑦ Export</button>
+            <button class="btn btn-approve" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出用ZIP作成</button>
+            <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
             ${p.status !== 'archived'
               ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
               : ''}
@@ -1179,6 +1180,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
   html += '<div id="imageGenerationResultContent"></div>';
   html += '<div id="aiReviewResultContent"></div>';
   html += '<div id="exportResultContent"></div>';
+  html += '<div id="productionStatusResultContent"></div>';
 
   document.getElementById('projectListContent').innerHTML = html;
 }
@@ -3003,8 +3005,8 @@ function renderExportResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">⑦ Export結果（Project ${esc(projectId)}）</div>
-      <div class="creative-direction-text">${readyLabel}　Exported At: ${esc(report.exported_at || '-')}</div>
+      <div class="card-title">⑦ 提出用ZIP作成結果（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text">${readyLabel}　作成日時: ${esc(report.exported_at || '-')}</div>
       ${errorsHtml}
       ${warningsHtml}
       <div style="margin-top:10px">${downloadHtml}</div>
@@ -3013,7 +3015,7 @@ function renderExportResult(projectId, data) {
 }
 
 function exportProject(projectId, btnEl) {
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Export中...'; }
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 作成中...'; }
 
   fetch('/api/projects/export', {
     method: 'POST',
@@ -3027,7 +3029,70 @@ function exportProject(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ Export'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ 提出用ZIP作成'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest112：📊 CEO Production Dashboard（進行状況・現在の状態・
+// 次のおすすめActionを表示する。新しい状態は保存しない、読み取り専用の
+// Step UI）
+// ────────────────────────────────
+
+const PRODUCTION_STEP_ICONS = {
+  pending: '⬜ 未実行',
+  done: '✅ 完了',
+  needs_review: '⚠️ 要確認',
+  error: '❌ エラー',
+};
+
+function renderProductionStatus(projectId, data) {
+  const container = document.getElementById('productionStatusResultContent');
+  if (!container) return;
+
+  if (data.error && !data.steps) {
+    container.innerHTML = `<div class="card full error-box">⚠️ 進行状況の取得に失敗しました: ${esc(data.error || '')}</div>`;
+    return;
+  }
+
+  const stepNumbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
+  const stepRows = (data.steps || []).map((s, idx) => `
+    <tr>
+      <td>${stepNumbers[idx] || ''} ${esc(s.label)}</td>
+      <td>${PRODUCTION_STEP_ICONS[s.status] || esc(s.status)}</td>
+    </tr>
+  `).join('');
+
+  const readyLabel = data.ready_for_submission ? '✅ 提出準備：完了' : '🕒 提出準備：未完了';
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">📊 進行状況（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text"><strong>現在の状態：</strong>${esc(data.current_status || '-')}</div>
+      <div class="creative-direction-text"><strong>次にやること：</strong>${esc(data.next_action || '-')}</div>
+      <div class="creative-direction-text">${readyLabel}</div>
+      <div class="table-scroll" style="margin-top:10px">
+        <table class="simple-table">
+          <thead><tr><th>ステップ</th><th>状態</th></tr></thead>
+          <tbody>${stepRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function showProductionStatus(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 確認中...'; }
+
+  fetch(`/api/projects/${encodeURIComponent(projectId)}/production-status`)
+    .then(r => r.json())
+    .then(data => renderProductionStatus(projectId, data))
+    .catch(e => {
+      const container = document.getElementById('productionStatusResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '📊 進行状況を見る'; }
     });
 }
 

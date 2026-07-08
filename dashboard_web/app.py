@@ -823,6 +823,32 @@ def api_projects_download_export(project_id):
 
 
 # ──────────────────────────────────────────
+# CEO Production Dashboard（Quest112）
+# Quest104〜111の各Serviceをread-onlyで束ね、Projectごとの進捗を
+# CEO向けに1つのステータスとしてまとめる（新しい状態は保存しない）。
+# ──────────────────────────────────────────
+
+@app.route("/api/projects/<project_id>/production-status")
+def api_projects_production_status(project_id):
+    """指定Projectの7ステップ進捗・現在の状態・次のおすすめActionを返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"error": "無効なProject IDです"}), 400
+    try:
+        ip_name = request.args.get("ip_name") or None
+        asset_type = request.args.get("asset_type") or None
+
+        from services.production_status_service import get_production_status, DEFAULT_ASSET_TYPE
+        result = get_production_status(
+            safe_id, ip_name=ip_name, asset_type=asset_type or DEFAULT_ASSET_TYPE,
+            outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"project_id": safe_id, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても
