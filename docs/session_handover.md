@@ -2735,3 +2735,91 @@ Quest108のPrompt Builder v2が保存した最新プロンプトを使い、実�
 - 画像生成AIの本番接続確認・40枚生成対応
 - Project × IP Memoryの紐付け永続化
 - Character Bible / World Bible個別実装
+
+---
+
+# 最新状況（2026-07-08・Quest110：AI Review Engine）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence → Production Phase**
+
+## 完了Quest
+Quest110まで完了。
+
+## Quest110内容
+Quest109で生成したLINEスタンプ画像を、必要な時だけAIレビューできる
+仕組みを追加した。DAFのLean AI First方針における判定の優先順位
+`Python Quality Check → Rule Engine → AI Review → CEO承認`を実装で
+明示的に踏襲し、AIは「最後の専門家」として常時実行せず、CEOがDashboard
+から手動で依頼した場合（またはPython Quality CheckがWARNING/FAILを
+検出した場合）のみ実行する設計にした。
+
+- `services/ai_review_engine.py`：新規。
+  - `get_generated_images(project_id)` — Quest109の
+    `image_generation_pipeline.list_generated_images()`へ委譲（読み取り
+    専用）
+  - `should_run_ai_review(manual_request, quality_report)` —
+    manual_request=True、またはPython Quality CheckにWARNING/FAILが
+    含まれる場合にTrueを返す判定関数
+  - `review_images(project_id, ip_name=None, manual_request=True)` —
+    生成画像一覧取得→metadata取得→Creative Style/IP Bible/Prompt参照→
+    `services/quality_control_service.generate_quality_report()`
+    （Quest106）を先に実行→レビュー対象判定→必要な画像だけAIレビュー→
+    `review_report.json`保存、までを1回で行う
+  - AIレビューはOpenRouter経由gpt-4o-mini（`OPENROUTER_API_KEY`、
+    Quest103/105/107と同じ方針。Quest109の画像生成AI＝`OPENAI_API_KEY`
+    とは別の鍵）で実施。未設定・呼び出し失敗時は例外を投げず
+    `fallback_rule_review`（Python Quality Check・生成metadataに基づく
+    決定的なルールベース簡易レビュー）へ自動フォールバックする
+  - レビュー観点6項目：character_consistency / style_consistency /
+    line_sticker_usability / text_readability / emotional_clarity /
+    commercial_quality（各`{"score":1-5,"comment":str,"needs_fix":bool}`）
+  - `save_review_report()` / `load_review_report()` —
+    `outputs/reviews/<project_id>/review_report.json`への保存・読込
+- `dashboard_web/app.py`：
+  - `POST /api/projects/review-images` — レビュー実行（manual_request=True固定）
+  - `GET /api/projects/<project_id>/review-report` — 保存済みレポート取得
+- `dashboard_web/templates/index.html`：Projectsタブに「⑥ AIレビュー」
+  ボタンを追加。overall_score・summary・needs_fixの有無・各画像の簡易
+  コメントをDashboard上に表示する。
+- `tests/test_quest110_ai_review_engine.py`：新規（18件）。
+  should_run_ai_review()の判定分岐、review_report.jsonの保存、
+  `OPENROUTER_API_KEY`未設定時のfallback_rule_review成功、review_mode
+  記録、overall_score・items（6項目すべて含む）の返却、生成画像が無い
+  場合の安全なエラー、Flask API層のバリデーションを検証。テスト実施中に
+  `services/image_generation_service.py`が内部で使う`config.py`の
+  import時`load_dotenv()`により、`os.environ.pop()`後もAPIキーが
+  再読込されるケースを発見し、`review_images()`呼び出し直前に再度popする
+  形でテスト分離を担保した（実運用への影響なし）。
+
+## 動作確認結果
+- Dashboard起動・Projectsタブ表示：OK（既存機能に回帰なし）
+- 実ブラウザ操作でProject 001に対し「④ プロンプト生成」→「⑤ 画像生成」
+  （2枚）→「⑥ AIレビュー」を実行 → 実際にOpenRouter経由でAIレビューが
+  動作し、6項目のスコア・needs_fix・実ファイル名（sticker_001.png等）に
+  基づく画像ごとのコメントがDashboardに正しく表示されることを確認
+- `GET /api/projects/001/review-report`が保存済みレポート
+  （review_mode: ai、overall_score: 4等）を正しく返すことを確認
+- Generated Assets・IP Memory・Referencesタブ等：回帰なし
+- `tests/`配下137件（Quest102〜109の119件＋Quest110の18件）すべてpass
+
+## commit / push
+- commit hash：`360a96e`（`feat: add AI review engine`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- CEOがAIレビュー結果（needs_fix）を踏まえて承認・却下する導線
+  （CEO Decision Centerとの連携）
+- LINE Creators Market提出用ZIP化・Export Engine（Quest111以降）
+- 画像修正・再生成フロー（Quest110では対象外、レビューのみ）
+- Project × IP Memoryの紐付け永続化
+
+## 今後のロードマップ
+- AIレビュー結果 × CEO承認フローの接続
+- Export Engine（ZIP化、Quest111以降）
+- 画像修正・再生成フロー
+- Project × IP Memoryの紐付け永続化
