@@ -851,6 +851,109 @@ def api_references_update():
 
 
 # ──────────────────────────────────────────
+# IP Memory Engine（Quest104）
+# Reference（画像）→ Analysis（Quest103）→ IP Memory（本質の蓄積）の入口。
+# Quest104で実装するのはDNAのみ。Character Bible等は空のプレースホルダ。
+# outputs/reference_library/とは物理的に分離する。
+# ──────────────────────────────────────────
+
+def _safe_ip_name_param(raw_name: str) -> str | None:
+    """IP名がフォルダ名として安全かチェックする（_safe_project_idと同じ方針）。"""
+    if not raw_name or not re.match(r"^[\w\-]+$", raw_name):
+        return None
+    return raw_name
+
+
+@app.route("/api/ip-memory")
+def api_ip_memory_list():
+    """登録済みIP一覧を返す。"""
+    try:
+        from services.ip_memory_service import list_ips
+        return jsonify({"ips": list_ips(outputs_dir=OUTPUTS_DIR)})
+    except Exception as e:
+        return jsonify({"ips": [], "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/<ip_name>")
+def api_ip_memory_detail(ip_name):
+    """指定IPのip_memory.json（DNA含む全セクション）を返す。"""
+    safe_name = _safe_ip_name_param(ip_name)
+    if not safe_name:
+        return jsonify({"exists": False, "error": "無効なIP名です"}), 400
+    try:
+        from services.ip_memory_service import load_ip
+        ip = load_ip(safe_name, outputs_dir=OUTPUTS_DIR)
+        if ip is None:
+            return jsonify({"exists": False, "ip_name": safe_name})
+        return jsonify({"exists": True, "ip": ip})
+    except Exception as e:
+        return jsonify({"exists": False, "ip_name": safe_name, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/create", methods=["POST"])
+def api_ip_memory_create():
+    """新規IP（DNA含む全セクションの空箱）を作成する。既存IPは上書きしない。"""
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+
+        from services.ip_memory_service import create_ip
+        result = create_ip(ip_name, outputs_dir=OUTPUTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/dna/update", methods=["POST"])
+def api_ip_memory_dna_update():
+    """
+    指定IPのDNA（identity/personality/visual/brand/rules/keywords）を
+    部分更新して保存する（IP未作成なら新規作成してから更新する）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+
+        dna_updates = data.get("dna") or {}
+        if not isinstance(dna_updates, dict):
+            return jsonify({"ok": False, "error": "dnaはオブジェクトで指定してください"}), 400
+
+        from services.ip_memory_service import update_dna
+        result = update_dna(ip_name, dna_updates, outputs_dir=OUTPUTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/dna/generate", methods=["POST"])
+def api_ip_memory_dna_generate():
+    """
+    登録済みReference（project_id/categoryで絞り込み可）の共通特徴から
+    DNAの"提案"を生成する。ip_memory.jsonへの保存はしない
+    （Dashboard上でCEOが確認・編集した上で/api/ip-memory/dna/updateを呼ぶ）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        project_id = str(data.get("project_id", "")).strip() or None
+        category = str(data.get("category", "")).strip() or None
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+
+        from services.ip_memory_service import generate_dna_from_reference
+        result = generate_dna_from_reference(
+            ip_name, project_id=project_id, category=category, outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # LINEスタンプ生成結果（Quest94 v2で追加、Quest97でProject別対応）
 # フォルダを開かなくてもDashboard上でProject別に40枚のスタンプ・main/tab・
 # zip・metadataを確認できるようにするためのAPI。

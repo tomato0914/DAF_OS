@@ -30,6 +30,7 @@
   <button class="tab-btn" data-tab="assets" onclick="switchTab('assets')" id="tabAssets">🎨 Generated Assets</button>
   <button class="tab-btn" data-tab="notifications" onclick="switchTab('notifications')" id="tabNotifications">🔔 Notifications</button>
   <button class="tab-btn" data-tab="references" onclick="switchTab('references')" id="tabReferences">🎨 References</button>
+  <button class="tab-btn" data-tab="ipmemory" onclick="switchTab('ipmemory')" id="tabIpMemory">🧬 IP Memory</button>
 </nav>
 
 <!-- ダッシュボードタブ -->
@@ -145,6 +146,25 @@
   </div>
 </main>
 
+<!-- IP Memoryタブ（Quest104） -->
+<main class="container" id="tabIpMemoryCenter" style="display:none">
+  <div class="card full">
+    <div class="card-title">🆕 New IP</div>
+    <div class="project-form">
+      <label class="project-form-label">IP名</label>
+      <input type="text" class="project-input" id="ipNewName" placeholder="例：mofu">
+      <button class="btn btn-approve" id="ipCreateBtn" onclick="createIp()">Create</button>
+    </div>
+  </div>
+
+  <div class="card full" id="ipListContent">
+    <div class="card-title">🧬 IP一覧</div>
+    <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
+  </div>
+
+  <div class="card full" id="ipDnaContent" style="display:none"></div>
+</main>
+
 <!-- 却下理由モーダル -->
 <div class="modal-backdrop" id="rejectModal" style="display:none">
   <div class="modal">
@@ -195,6 +215,7 @@ function switchTab(tab) {
   document.getElementById('tabAssetCenter').style.display     = tab === 'assets' ? '' : 'none';
   document.getElementById('tabNotificationCenter').style.display = tab === 'notifications' ? '' : 'none';
   document.getElementById('tabReferenceCenter').style.display = tab === 'references' ? '' : 'none';
+  document.getElementById('tabIpMemoryCenter').style.display = tab === 'ipmemory' ? '' : 'none';
   // タブボタン以外（CEOサマリーのタイルなど）から呼ばれても安全なように、
   // 暗黙の event を使わず data-tab 属性で対象ボタンを探す
   const activeBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
@@ -204,6 +225,7 @@ function switchTab(tab) {
   if (tab === 'assets') { fetchGeneratedAssets(); fetchLineStickerProjects(); fetchRendererInfo(); }
   if (tab === 'notifications') fetchNotifications();
   if (tab === 'references') fetchReferences();
+  if (tab === 'ipmemory') fetchIps();
 }
 
 // ────────────────────────────────
@@ -1929,6 +1951,254 @@ function fetchReferences() {
       document.getElementById('referenceListContent').innerHTML =
         `<div class="error-box">⚠️ Reference一覧の取得に失敗しました: ${esc(String(e))}</div>`;
     });
+}
+
+// ────────────────────────────────
+// Quest104：🧬 IP Memory Engine（DNAのみ実装。他セクションはComing Soon）
+// ────────────────────────────────
+
+const _DNA_GROUP_FIELDS = {
+  identity: ['name', 'species', 'type'],
+  personality: ['personality', 'values', 'target_emotion'],
+  visual: ['color_palette', 'line_style', 'eye_style', 'body_style'],
+  brand: ['positioning', 'audience'],
+  rules: ['must_have', 'must_not'],
+};
+const _DNA_GROUP_LABELS = {
+  identity: 'Identity', personality: 'Personality', visual: 'Visual',
+  brand: 'Brand', rules: 'Rules',
+};
+
+let _selectedIpName = null;
+
+function renderIpList(ips) {
+  const list = ips || [];
+  let html = '<div class="card-title">🧬 IP一覧（' + list.length + '件）</div>';
+
+  if (list.length === 0) {
+    html += '<div class="ceo-brief-empty">まだIPは登録されていません。上のフォームから作成してください。</div>';
+  } else {
+    html += `
+      <div class="table-scroll">
+      <table class="simple-table">
+        <thead><tr><th>IP名</th><th>DNA Name</th><th>Version</th><th>更新日時</th><th></th></tr></thead>
+        <tbody>
+    `;
+    list.forEach(ip => {
+      html += `
+        <tr>
+          <td>${esc(ip.ip_name)}</td>
+          <td>${esc(ip.dna_name || '-')}</td>
+          <td>v${esc(String(ip.version || 1))}</td>
+          <td>${esc(ip.updated_at || '-')}</td>
+          <td><button class="btn" onclick="selectIp('${esc(ip.ip_name)}')">DNAを開く</button></td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('ipListContent').innerHTML = html;
+}
+
+function fetchIps() {
+  fetch('/api/ip-memory')
+    .then(r => r.json())
+    .then(data => renderIpList(data.ips))
+    .catch(e => {
+      document.getElementById('ipListContent').innerHTML =
+        `<div class="error-box">⚠️ IP一覧の取得に失敗しました: ${esc(String(e))}</div>`;
+    });
+}
+
+function createIp() {
+  const nameInput = document.getElementById('ipNewName');
+  const name = nameInput.value.trim();
+  if (!name) {
+    alert('IP名を入力してください');
+    return;
+  }
+  const btn = document.getElementById('ipCreateBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 作成中...';
+
+  fetch('/api/ip-memory/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: name }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        nameInput.value = '';
+        fetchIps();
+        selectIp(data.ip.ip_name);
+      } else {
+        alert('⚠️ ' + (data.error || 'IPの作成に失敗しました'));
+      }
+    })
+    .catch(e => alert('エラー: ' + e))
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Create';
+    });
+}
+
+function _dnaFieldInputsHtml(dna) {
+  let html = '';
+  Object.entries(_DNA_GROUP_FIELDS).forEach(([group, fields]) => {
+    html += `<div class="project-form-label" style="margin-top:14px"><strong>${esc(_DNA_GROUP_LABELS[group])}</strong></div>`;
+    fields.forEach(field => {
+      const value = (dna[group] || {})[field] || '';
+      html += `
+        <label class="project-form-label">${esc(field)}</label>
+        <input type="text" class="project-input" id="ipDna_${group}_${field}" value="${esc(value)}">
+      `;
+    });
+  });
+  html += `<div class="project-form-label" style="margin-top:14px"><strong>Keywords</strong></div>`;
+  html += `<label class="project-form-label">keywords（カンマ区切り）</label>`;
+  html += `<input type="text" class="project-input" id="ipDna_keywords" value="${esc((dna.keywords || []).join(', '))}">`;
+  return html;
+}
+
+function renderIpDnaPanel(ip) {
+  const container = document.getElementById('ipDnaContent');
+  if (!ip) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  container.style.display = '';
+  const dna = ip.dna || {};
+  const metadata = ip.metadata || {};
+
+  container.innerHTML = `
+    <div class="card-title">🧬 ${esc(ip.ip_name)} — DNA（v${esc(String(metadata.version || 1))}）</div>
+    <div class="creative-direction-text">作成: ${esc(metadata.created_at || '-')} ／ 更新: ${esc(metadata.updated_at || '-')}</div>
+
+    <div class="project-form" style="margin-top:10px">
+      <div class="reference-edit-actions">
+        <input type="text" class="project-input" id="ipDnaGenProjectId" placeholder="project_id（任意）" style="max-width:180px">
+        <input type="text" class="project-input" id="ipDnaGenCategory" placeholder="category（任意）" style="max-width:180px">
+        <button class="btn" id="ipDnaGenBtn" onclick="generateDnaForSelectedIp()">🤖 Generate DNA from Reference</button>
+      </div>
+      <span class="reference-edit-status" id="ipDnaGenStatus"></span>
+    </div>
+
+    <div class="project-form" id="ipDnaFields">
+      ${_dnaFieldInputsHtml(dna)}
+      <button class="btn btn-approve" style="margin-top:14px" onclick="saveDnaForSelectedIp()">💾 Save DNA</button>
+      <span class="reference-edit-status" id="ipDnaSaveStatus"></span>
+    </div>
+
+    <details class="card full log-section" style="margin-top:14px">
+      <summary><span class="card-title">🚧 Character Bible / World Bible / Style Guide / History（Coming Soon）</span></summary>
+      <div class="log-section-body">
+        <div class="ceo-brief-empty">
+          Character Bible・World Bible・Style Guide・Prompt History・Review History・
+          Evolution Historyは今後のQuestで実装予定です（IP Memoryの構造としては
+          ip_memory.json内に既に領域を確保済み）。
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function selectIp(ipName) {
+  _selectedIpName = ipName;
+  fetch(`/api/ip-memory/${encodeURIComponent(ipName)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.exists) {
+        renderIpDnaPanel(data.ip);
+      } else {
+        renderIpDnaPanel(null);
+        alert('IPが見つかりませんでした');
+      }
+    })
+    .catch(e => alert('エラー: ' + e));
+}
+
+function _collectDnaFromForm() {
+  const dna = {};
+  Object.entries(_DNA_GROUP_FIELDS).forEach(([group, fields]) => {
+    dna[group] = {};
+    fields.forEach(field => {
+      const el = document.getElementById(`ipDna_${group}_${field}`);
+      dna[group][field] = el ? el.value : '';
+    });
+  });
+  const keywordsEl = document.getElementById('ipDna_keywords');
+  dna.keywords = keywordsEl ? keywordsEl.value : '';
+  return dna;
+}
+
+function _fillDnaForm(dna) {
+  Object.entries(_DNA_GROUP_FIELDS).forEach(([group, fields]) => {
+    fields.forEach(field => {
+      const el = document.getElementById(`ipDna_${group}_${field}`);
+      if (el) el.value = (dna[group] || {})[field] || '';
+    });
+  });
+  const keywordsEl = document.getElementById('ipDna_keywords');
+  if (keywordsEl) keywordsEl.value = (dna.keywords || []).join(', ');
+}
+
+function generateDnaForSelectedIp() {
+  if (!_selectedIpName) return;
+  const btn = document.getElementById('ipDnaGenBtn');
+  const statusEl = document.getElementById('ipDnaGenStatus');
+  const projectId = document.getElementById('ipDnaGenProjectId').value.trim();
+  const category = document.getElementById('ipDnaGenCategory').value.trim();
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中...';
+  statusEl.textContent = '';
+
+  fetch('/api/ip-memory/dna/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: _selectedIpName, project_id: projectId, category: category }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok && data.dna) {
+        _fillDnaForm(data.dna);
+        statusEl.textContent = `✅ ${data.reference_count}件のReferenceからDNA案を生成しました（内容を確認・編集してSaveしてください）`;
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || 'DNA生成に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '🤖 Generate DNA from Reference';
+    });
+}
+
+function saveDnaForSelectedIp() {
+  if (!_selectedIpName) return;
+  const statusEl = document.getElementById('ipDnaSaveStatus');
+  const dna = _collectDnaFromForm();
+
+  statusEl.textContent = '⏳ 保存中...';
+  fetch('/api/ip-memory/dna/update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: _selectedIpName, dna: dna }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        statusEl.textContent = '✅ 保存しました';
+        renderIpDnaPanel(data.ip);
+        fetchIps();
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || '保存に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; });
 }
 
 function uploadReferenceImage() {
