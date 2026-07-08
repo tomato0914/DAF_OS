@@ -2915,3 +2915,93 @@ Export Engineを追加した。実際の申請（アップロード）は行わ�
 - AIレビュー結果 × CEO承認フローの接続
 - 40枚生成対応・画像生成AIの本番接続確認
 - Project × IP Memoryの紐付け永続化
+
+---
+
+# 最新状況（2026-07-08・Quest112：CEO Production Dashboard）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence → Production Phase**
+
+## 完了Quest
+Quest112まで完了。
+
+## Quest112内容
+Quest108〜111でProduction Pipeline（`Prompt生成 → 画像生成 → AIレビュー →
+Export`）自体は完成していたが、Dashboard上は開発者向けの個別ボタンが
+並ぶだけで、CEOが「今どこまで進んでいて、次に何をすればいいか」を一目で
+把握できなかった。Quest112でProjectsタブへCEO向けのProduction Step UIを
+追加した。新しい状態は一切保存せず、既存Service（Quest104〜111）の
+保存済みデータを都度読み直して判定するだけの、完全にread-onlyな追加。
+
+- `services/production_status_service.py`：新規。
+  - `get_production_status(project_id, ip_name=None)` — 7ステップ
+    （① キャラクターの特徴を作る／② 設定資料を作る／③ 描き方を作る／
+    ④ プロンプト生成／⑤ 画像生成／⑥ AIレビュー／⑦ 提出用ZIP作成）の
+    状態（pending＝未実行／done＝完了／needs_review＝要確認／
+    error＝エラー）・現在の状態サマリー・次のおすすめAction・提出準備
+    完了フラグ（ready_for_submission）を返す
+  - ①②③（IP DNA/IP Bible/Style Guide）はProjectとIPを紐づける仕組みが
+    まだ無いため（Quest108〜111と同じ制約）、ip_name未指定時は
+    「未実行」表示のまま次のおすすめAction算出からは除外する（Quest108の
+    「IPが無くてもPrompt Builder v2は動作継続する」設計と矛盾させない
+    ため。ip_nameを明示的に渡した場合は通常通り判定対象になる）
+  - AIレビューが要確認（needs_fix）でも、Exportが完了していれば
+    `ready_for_submission: true`とする（Quest111の「Exportはブロック
+    しない」設計と整合。current_statusには引き続き要確認の旨を表示し、
+    CEOの見落としを防ぐ）
+  - 各ステップの確認は個別にtry/exceptで守られ、1つの確認に失敗しても
+    他のステップ・DAF OS全体には影響しない
+- `dashboard_web/app.py`：`GET /api/projects/<project_id>/production-status`
+  を追加（ip_name・asset_typeはクエリパラメータで任意指定可）
+- `dashboard_web/templates/index.html`：Projectsタブに
+  「📊 進行状況を見る」ボタンを追加。7ステップの状態一覧・現在の状態・
+  次にやること・提出準備の有無をカードで表示する。あわせて「⑦ Export」
+  ボタンを「⑦ 提出用ZIP作成」へ改名（CEO向け日本語表現に統一する例示に
+  該当するため）。IP Memory・Generated Assetsタブの既存ボタン表記は
+  今回の主目的（Projectsタブの整理）の範囲外として変更していない。
+- `tests/test_quest112_ceo_production_dashboard.py`：新規（11件）。
+  7ステップすべてが返ること、next_actionが返ること、未実行Projectでも
+  安全に動作すること（全ステップpending、current_status="まだ何も
+  実行されていません"）、プロンプト生成後にpromptステップがdoneになる
+  こと、画像生成後にimage_generationステップがdoneになりcurrent_status/
+  next_actionが指示書の例（「画像生成まで完了」「AIレビューを実行して
+  ください」）と完全一致すること、Export後にready_for_submissionが
+  trueになること、ip_name指定時に①②③がdoneになること、ip_name未指定時に
+  ①②③がNext Actionをブロックしないこと、Flask APIのバリデーションを検証。
+
+## 動作確認結果
+- Dashboard起動・Projectsタブ表示：OK（既存機能に回帰なし）
+- 実ブラウザ操作でProject 001に対し「📊 進行状況を見る」を実行 →
+  7ステップ・現在の状態・次にやること・提出準備の有無が正しく日本語で
+  表示されることを確認
+- 「④ プロンプト生成」→「⑤ 画像生成」と進めるたびに、進行状況の表示が
+  「画像生成まで完了」「次にやること：AIレビューを実行してください」と
+  指示書の例通りに更新されることを確認
+- 「⑦ Export」→「⑦ 提出用ZIP作成」への改名後も既存のExport機能は
+  問題なく動作することを確認
+- Generated Assets・IP Memory・Referencesタブ等：回帰なし
+- `tests/`配下165件（Quest102〜111の154件＋Quest112の11件）すべてpass
+
+## commit / push
+- commit hash：`affe417`（`feat: add CEO production dashboard`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- One-Click Production Flow（「LINEスタンプを作る」ボタンで
+  Prompt→画像生成→AIレビュー→Exportまで自動実行、Quest112では意図的に
+  対象外）
+- Project × IP Memoryの紐付け永続化（①②③を毎回ip_name指定せずに
+  判定できるようにする）
+- CEOがAIレビュー結果を踏まえて承認・却下する導線
+- 複数プラットフォームExport Adapter追加
+
+## 今後のロードマップ
+- One-Click Production Flow（Quest113）
+- Project × IP Memoryの紐付け永続化
+- AIレビュー結果 × CEO承認フローの接続
+- 複数プラットフォームExport Adapter追加
