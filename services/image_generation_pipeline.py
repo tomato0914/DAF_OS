@@ -1,0 +1,274 @@
+"""
+DAF OS Quest109 — Image Generation Pipeline（Production Phaseの中核）
+
+Quest108までで完成した
+  Reference → IP Memory → IP DNA → IP Bible → Creative Style →
+  Prompt Builder v2
+の最後に、実際に画像を生成・保存し、Dashboardで確認できるところまで
+つなげる。
+
+パイプライン：
+  最新Prompt取得（services/prompt_builder_v2.py） → 画像生成 → 画像保存 →
+  metadata.json保存 → 画像一覧取得
+
+Lean AI Firstを維持しつつ、本Questは画像生成AIの利用を許可する
+（Production Phaseの中核のため）。ただし以下を必ず守る：
+- AI画像生成API（`OPENAI_API_KEY`）が未設定、またはAPI呼び出しが失敗した
+  場合でも例外を投げず、Pillowによるダミー画像生成（既存の
+  services/image_generation_service.py・services/renderers/pillow_renderer.py
+  をそのまま再利用、Quest98実装への変更なし）へフォールバックする。
+- 生成枚数は安全のため最大3枚まで（`MAX_GENERATION_COUNT`）。将来
+  40枚生成へ拡張する場合もこの定数を変えるだけで済む設計にしている。
+- services/prompt_builder_v2.py（Quest108）・Asset Generator
+  （services/asset_generator_service.py、Quest90〜97のLINEスタンプ生成）
+  にはいずれも変更を加えない（完全に独立した新しいパイプライン）。
+
+保存先：
+  outputs/generated_assets/<asset_type>/<project_id>/
+    sticker_001.png, sticker_002.png, ..., metadata.json
+  （asset_type="line_sticker"の場合、既存のLINEスタンプ生成
+  outputs/generated_assets/line_sticker/<project_id>/ と同じ場所を使う。
+  ファイル名は"sticker_"prefixのため、既存Asset Generatorが使う
+  stamp_*.png / main.png / tab.png / metadata.md とは衝突しない）。
+
+  1回の実行で「その時点の生成結果」を表す（sticker_001.pngから連番で
+  上書き保存し、metadata.jsonも都度上書きする。Quest108のプロンプト
+  履歴のような連番保存はしない＝画像はAsset、プロンプトは履歴という
+  役割の違いのため）。
+
+必要な関数：
+- get_latest_prompt(project_id):     保存済みプロンプトのうち最新のものを
+                                      読み込む（services/prompt_builder_v2.py
+                                      のload_prompt()をそのまま利用）
+- generate_images(project_id, asset_type, count): 画像生成・保存・
+                                      metadata.json保存までを行う
+- list_generated_images(project_id, asset_type): 保存済み画像一覧・
+                                      metadataを返す
+
+CLI:
+  python services/image_generation_pipeline.py <project_id> [count] [asset_type]
+
+Prompt未生成・AI呼び出し失敗・書き込み失敗のいずれでも例外を投げず、
+DAF OS全体を止めない。
+"""
+
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+_BASE_DIR = Path(__file__).parent.parent
+_OUTPUTS_DIR = _BASE_DIR / "outputs"
+_GENERATED_ASSETS_DIR_NAME = "generated_assets"
+_METADATA_FILENAME = "metadata.json"
+
+DEFAULT_ASSET_TYPE = "line_sticker"
+DEFAULT_COUNT = 1
+# Quest109：安全のため、まずは最大3枚まで。将来40枚生成へ拡張する場合も
+# この定数を変更するだけで済む（呼び出し側のロジックは変更不要）。
+MAX_GENERATION_COUNT = 3
+
+GENERATION_MODE_AI = "ai"
+GENERATION_MODE_FALLBACK = "fallback_pillow"
+
+
+def get_latest_prompt(project_id: str, outputs_dir: Path | None = None) -> dict:
+    """
+    Quest108で保存済みの最新プロンプトを読み込む（Prompt Builder v2の
+    load_prompt()をそのまま利用し、Quest108側には一切手を加えない）。
+
+    戻り値: {"ok": bool, "prompt": str | None, "filename": str | None,
+             "error": str | None}
+    未生成・読み込み失敗でも例外を投げない。
+    """
+    try:
+        from services.prompt_builder_v2 import list_prompts, load_prompt
+
+        prompts = list_prompts(project_id, outputs_dir=outputs_dir)
+        if not prompts:
+            return {"ok": False, "prompt": None, "filename": None,
+                     "error": "保存済みのプロンプトがありません（先に「④ プロンプト生成」を実行してください）"}
+
+        latest = prompts[-1]
+        prompt_text = load_prompt(project_id, filename=latest["filename"], outputs_dir=outputs_dir)
+        if not prompt_text:
+            return {"ok": False, "prompt": None, "filename": None, "error": "プロンプトの読み込みに失敗しました"}
+
+        return {"ok": True, "prompt": prompt_text, "filename": latest["filename"], "error": None}
+    except Exception as e:
+        print(f"[警告] 最新プロンプトの取得に失敗しました（{project_id}）：{e}")
+        return {"ok": False, "prompt": None, "filename": None, "error": str(e)}
+
+
+def _generated_assets_dir(project_id: str, asset_type: str, outputs_dir: Path | None = None) -> Path:
+    return (outputs_dir or _OUTPUTS_DIR) / _GENERATED_ASSETS_DIR_NAME / asset_type / project_id
+
+
+def _generate_via_ai(prompt_text: str, index: int, size: str = "256x256") -> "Image.Image":
+    """
+    画像生成AI（現状はOPENAI_API_KEY経由のDALL-E系モデルをlitellm経由で
+    呼ぶ）を使って1枚生成する。失敗時は例外をそのまま呼び出し元へ伝える
+    （呼び出し側でPillowフォールバックへ切り替える判断に使うため）。
+
+    litellm.image_generation()を使うのは、将来Google・Stability AI等の
+    他プロバイダへ切り替える際も同じインターフェースで呼べるようにする
+    ため（Lean AI Firstの「複数プロバイダへ接続できる独立したコンポーネント」
+    という設計方針、Quest108のPrompt Builder v2と同じ考え方）。
+    """
+    import base64
+    import io
+    from PIL import Image
+    import litellm
+
+    response = litellm.image_generation(prompt=prompt_text, model="dall-e-2", n=1, size=size)
+    data = response["data"][0]
+
+    if data.get("b64_json"):
+        image_bytes = base64.b64decode(data["b64_json"])
+        return Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+
+    if data.get("url"):
+        import urllib.request
+        with urllib.request.urlopen(data["url"], timeout=30) as resp:
+            image_bytes = resp.read()
+        return Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+
+    raise ValueError("画像生成APIの応答に画像データがありません")
+
+
+def _generate_via_fallback(prompt_text: str, index: int) -> "Image.Image":
+    """
+    Pillowによるダミー画像生成（既存のservices/image_generation_service.py
+    render_stamp_image()をそのまま再利用、Quest98実装への変更なし）。
+    promptはCharacter Bible同様、将来のAPI型Rendererのために渡すだけで、
+    Pillow Rendererは決定的な描画のみ行う。
+    """
+    from services.image_generation_service import render_stamp_image
+    return render_stamp_image(phrase="", index=index, prompt=prompt_text)
+
+
+def generate_images(
+    project_id: str,
+    asset_type: str = DEFAULT_ASSET_TYPE,
+    count: int = DEFAULT_COUNT,
+    outputs_dir: Path | None = None,
+) -> dict:
+    """
+    Quest109：最新Prompt取得 → 画像生成 → 画像保存 → metadata.json保存まで
+    を1回で行う。
+
+    countは1〜MAX_GENERATION_COUNT（既定3）に丸める。AI画像生成
+    （OPENAI_API_KEY設定時）を先頭1枚で試行し、失敗した場合はバッチ全体を
+    Pillowフォールバックへ切り替える（一部の画像だけAI・残りPillowという
+    混在を避け、generation_modeを常にバッチ単位で一貫させるため）。
+
+    戻り値: {"ok": bool, "project_id": str, "asset_type": str,
+             "image_files": list[str], "generation_mode": str | None,
+             "path": str | None, "metadata_path": str | None,
+             "prompt_file": str | None, "error": str | None}
+    Prompt未生成・AI呼び出し失敗・書き込み失敗のいずれでも例外を投げない。
+    """
+    try:
+        safe_count = max(1, min(int(count or DEFAULT_COUNT), MAX_GENERATION_COUNT))
+
+        prompt_result = get_latest_prompt(project_id, outputs_dir=outputs_dir)
+        if not prompt_result.get("ok"):
+            return {"ok": False, "project_id": project_id, "asset_type": asset_type,
+                     "image_files": [], "generation_mode": None, "path": None,
+                     "metadata_path": None, "prompt_file": None, "error": prompt_result.get("error")}
+
+        prompt_text = prompt_result["prompt"]
+        prompt_file = prompt_result["filename"]
+
+        target_dir = _generated_assets_dir(project_id, asset_type, outputs_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        images = []
+        generation_mode = GENERATION_MODE_AI
+        try:
+            import os
+            if not os.getenv("OPENAI_API_KEY"):
+                raise RuntimeError("OPENAI_API_KEY not set")
+            for i in range(1, safe_count + 1):
+                images.append(_generate_via_ai(prompt_text, i))
+        except Exception as e:
+            print(f"[情報] AI画像生成を利用できないため、Pillowフォールバックで生成します（{project_id}）：{e}")
+            images = []
+            generation_mode = GENERATION_MODE_FALLBACK
+            for i in range(1, safe_count + 1):
+                images.append(_generate_via_fallback(prompt_text, i))
+
+        image_files = []
+        for i, img in enumerate(images, start=1):
+            filename = f"sticker_{i:03d}.png"
+            img.save(target_dir / filename, format="PNG")
+            image_files.append(filename)
+
+        metadata = {
+            "project_id": project_id,
+            "asset_type": asset_type,
+            "prompt_file": prompt_file,
+            "image_files": image_files,
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "generation_mode": generation_mode,
+        }
+        metadata_path = target_dir / _METADATA_FILENAME
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        return {
+            "ok": True, "project_id": project_id, "asset_type": asset_type,
+            "image_files": image_files, "generation_mode": generation_mode,
+            "path": str(target_dir), "metadata_path": str(metadata_path),
+            "prompt_file": prompt_file, "error": None,
+        }
+    except Exception as e:
+        print(f"[警告] 画像生成Pipelineの実行に失敗しました（{project_id}）：{e}")
+        return {"ok": False, "project_id": project_id, "asset_type": asset_type,
+                 "image_files": [], "generation_mode": None, "path": None,
+                 "metadata_path": None, "prompt_file": None, "error": str(e)}
+
+
+def list_generated_images(
+    project_id: str,
+    asset_type: str = DEFAULT_ASSET_TYPE,
+    outputs_dir: Path | None = None,
+) -> dict:
+    """
+    保存済みのmetadata.json・画像一覧を返す（読み取り専用）。
+
+    戻り値: {"exists": bool, "project_id": str, "asset_type": str,
+             "image_files": list[str], "metadata": dict | None}
+    未生成・読み込み失敗の場合はexists=Falseを返す。例外を投げない。
+    """
+    try:
+        target_dir = _generated_assets_dir(project_id, asset_type, outputs_dir)
+        metadata_path = target_dir / _METADATA_FILENAME
+        if not metadata_path.exists():
+            return {"exists": False, "project_id": project_id, "asset_type": asset_type,
+                     "image_files": [], "metadata": None}
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        image_files = [f for f in (metadata.get("image_files") or []) if (target_dir / f).exists()]
+        return {"exists": True, "project_id": project_id, "asset_type": asset_type,
+                 "image_files": image_files, "metadata": metadata}
+    except Exception as e:
+        print(f"[警告] 生成済み画像一覧の取得に失敗しました（{project_id}）：{e}")
+        return {"exists": False, "project_id": project_id, "asset_type": asset_type,
+                 "image_files": [], "metadata": None}
+
+
+if __name__ == "__main__":
+    # Quest109: 動作確認用のCLI導線。
+    #   python services/image_generation_pipeline.py <project_id> [count] [asset_type]
+    if len(sys.argv) > 1:
+        project_id = sys.argv[1]
+        count = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_COUNT
+        asset_type = sys.argv[3] if len(sys.argv) > 3 else DEFAULT_ASSET_TYPE
+        result = generate_images(project_id, asset_type=asset_type, count=count)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print("使い方: python services/image_generation_pipeline.py <project_id> [count] [asset_type]")

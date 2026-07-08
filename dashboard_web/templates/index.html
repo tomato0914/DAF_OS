@@ -1158,6 +1158,12 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
               ? `<button class="btn btn-approve" onclick="generateProjectAssets('${esc(p.id)}', this)">Generate Assets</button>`
               : ''}
             <button class="btn" onclick="buildProjectPrompt('${esc(p.id)}', this)">④ プロンプト生成</button>
+            <select class="project-input" id="imgGenCount_${esc(p.id)}" style="display:inline-block;width:auto;max-width:70px">
+              <option value="1">1枚</option>
+              <option value="2">2枚</option>
+              <option value="3">3枚</option>
+            </select>
+            <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
             ${p.status !== 'archived'
               ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
               : ''}
@@ -1168,6 +1174,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
     html += '</tbody></table></div>';
   }
   html += '<div id="promptBuilderResultContent"></div>';
+  html += '<div id="imageGenerationResultContent"></div>';
 
   document.getElementById('projectListContent').innerHTML = html;
 }
@@ -2829,6 +2836,61 @@ function buildProjectPrompt(projectId, btnEl) {
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '④ プロンプト生成'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest109：⑤ Image Generation Pipeline（Prompt Builder v2の最新プロンプト
+// から画像を生成・保存する。AI画像生成が使えない場合はPillowフォールバック）
+// ────────────────────────────────
+
+function renderImageGenerationResult(projectId, data) {
+  const container = document.getElementById('imageGenerationResultContent');
+  if (!container) return;
+
+  if (!data.ok) {
+    container.innerHTML = `<div class="card full error-box">⚠️ 画像生成に失敗しました: ${esc(data.error || '')}</div>`;
+    return;
+  }
+
+  const modeLabel = data.generation_mode === 'ai' ? '🤖 AI生成' : '🖌️ Pillowフォールバック';
+  const thumbs = (data.image_files || []).map(filename => `
+    <img class="sticker-project-thumb" style="margin:4px"
+         src="/api/generated-assets/image/${esc(data.asset_type)}/${encodeURIComponent(projectId)}/${encodeURIComponent(filename)}"
+         alt="${esc(filename)}">
+  `).join('');
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">⑤ 画像生成結果（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text">
+        生成方式: ${modeLabel}　使用プロンプト: <code>${esc(data.prompt_file || '-')}</code>
+      </div>
+      <div class="creative-direction-text">保存先: <code>${esc(data.path || '-')}</code></div>
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap">${thumbs}</div>
+    </div>
+  `;
+}
+
+function generateProjectImage(projectId, btnEl) {
+  const countSelect = document.getElementById(`imgGenCount_${projectId}`);
+  const count = countSelect ? parseInt(countSelect.value, 10) : 1;
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 生成中...'; }
+
+  fetch('/api/projects/generate-image', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId, count: count }),
+  })
+    .then(r => r.json())
+    .then(data => renderImageGenerationResult(projectId, data))
+    .catch(e => {
+      const container = document.getElementById('imageGenerationResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑤ 画像生成'; }
     });
 }
 

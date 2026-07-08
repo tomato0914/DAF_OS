@@ -636,6 +636,72 @@ def api_projects_list_prompts(project_id):
 
 
 # ──────────────────────────────────────────
+# Image Generation Pipeline（Quest109・Production Phaseの中核）
+# Prompt Builder v2（Quest108）が保存した最新プロンプトから画像を生成・
+# 保存する。AI画像生成（OPENAI_API_KEY設定時）を試み、未設定・失敗時は
+# Pillowフォールバックへ切り替える（services/image_generation_pipeline.py
+# 側で完結、既存のAsset Generator・Prompt Builder v2には変更を加えない）。
+# ──────────────────────────────────────────
+
+@app.route("/api/projects/generate-image", methods=["POST"])
+def api_projects_generate_image():
+    """
+    指定Projectの最新プロンプトから画像を生成し、保存する
+    （Projectsタブの「⑤ 画像生成」ボタンから呼ばれる）。
+    countは1〜3枚（services/image_generation_pipeline.MAX_GENERATION_COUNT）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        asset_type = str(data.get("asset_type", "")).strip() or None
+        raw_count = data.get("count", 1)
+        try:
+            count = int(raw_count)
+        except (TypeError, ValueError):
+            count = 1
+
+        from services.image_generation_pipeline import generate_images, DEFAULT_ASSET_TYPE
+        result = generate_images(
+            project_id, asset_type=asset_type or DEFAULT_ASSET_TYPE, count=count,
+            outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/generated-images")
+def api_projects_generated_images(project_id):
+    """指定Projectの生成済み画像一覧・metadataを返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"exists": False, "error": "無効なProject IDです"}), 400
+    try:
+        asset_type = request.args.get("asset_type") or None
+        from services.image_generation_pipeline import list_generated_images, DEFAULT_ASSET_TYPE
+        return jsonify(list_generated_images(
+            safe_id, asset_type=asset_type or DEFAULT_ASSET_TYPE, outputs_dir=OUTPUTS_DIR,
+        ))
+    except Exception as e:
+        return jsonify({"exists": False, "error": str(e)}), 500
+
+
+@app.route("/api/generated-assets/image/<path:filename>")
+def api_generated_assets_image(filename):
+    """
+    outputs/generated_assets/ 配下の画像ファイルを返す（Quest109の生成画像
+    プレビュー用）。許可された拡張子（png）以外は404にする。
+    """
+    ext = Path(filename).suffix.lower()
+    if ext != ".png":
+        abort(404)
+    return send_from_directory(OUTPUTS_DIR / "generated_assets", filename)
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても
