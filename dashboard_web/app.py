@@ -1015,6 +1015,95 @@ def api_ip_memory_bible_get(ip_name):
 
 
 # ──────────────────────────────────────────
+# Creative Style Engine（Quest107）
+# IP DNA・IP Bibleからstyle_guide.md / prompt_rules.jsonを生成する。
+# Image Generation・Asset Generator・Quality Control Engineには触れない。
+# ──────────────────────────────────────────
+
+@app.route("/api/ip-memory/style/generate", methods=["POST"])
+def api_ip_memory_style_generate():
+    """
+    指定IPのDNA・IP BibleからStyle Guide（Markdown）とPrompt Rules（JSON）の
+    "提案"を生成する。ファイルへの保存はしない（Dashboard上でPreviewを
+    確認した上で/api/ip-memory/style/saveを呼ぶ）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+
+        from services.creative_style_service import generate_style_guide, generate_prompt_rules
+        style = generate_style_guide(ip_name, outputs_dir=OUTPUTS_DIR)
+        if not style.get("ok"):
+            return jsonify({"ok": False, "error": style.get("error") or "Style Guideの生成に失敗しました"}), 400
+
+        rules = generate_prompt_rules(ip_name, outputs_dir=OUTPUTS_DIR)
+        if not rules.get("ok"):
+            return jsonify({"ok": False, "error": rules.get("error") or "Prompt Rulesの生成に失敗しました"}), 400
+
+        return jsonify({
+            "ok": True,
+            "markdown": style.get("markdown"),
+            "markdown_source": style.get("source"),
+            "rules": rules.get("rules"),
+            "rules_source": rules.get("source"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/style/save", methods=["POST"])
+def api_ip_memory_style_save():
+    """生成済みStyle Guide（Markdown）・Prompt Rules（JSON）を保存する。"""
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        markdown = data.get("markdown")
+        rules = data.get("rules")
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+        if not isinstance(markdown, str) or not markdown.strip():
+            return jsonify({"ok": False, "error": "保存するStyle Guideがありません"}), 400
+        if not isinstance(rules, dict):
+            return jsonify({"ok": False, "error": "保存するPrompt Rulesがありません"}), 400
+
+        from services.creative_style_service import save_style_guide, save_prompt_rules
+        style_result = save_style_guide(ip_name, markdown, outputs_dir=OUTPUTS_DIR)
+        if not style_result.get("ok"):
+            return jsonify({"ok": False, "error": style_result.get("error") or "Style Guideの保存に失敗しました"}), 400
+
+        rules_result = save_prompt_rules(ip_name, rules, outputs_dir=OUTPUTS_DIR)
+        if not rules_result.get("ok"):
+            return jsonify({"ok": False, "error": rules_result.get("error") or "Prompt Rulesの保存に失敗しました"}), 400
+
+        return jsonify({
+            "ok": True,
+            "style_guide_path": style_result.get("path"),
+            "prompt_rules_path": rules_result.get("path"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/<ip_name>/style")
+def api_ip_memory_style_get(ip_name):
+    """保存済みStyle Guide（style_guide.md）・Prompt Rules（prompt_rules.json）を返す。"""
+    safe_name = _safe_ip_name_param(ip_name)
+    if not safe_name:
+        return jsonify({"exists": False, "error": "無効なIP名です"}), 400
+    try:
+        from services.creative_style_service import load_style_guide, load_prompt_rules
+        markdown = load_style_guide(safe_name, outputs_dir=OUTPUTS_DIR)
+        rules = load_prompt_rules(safe_name, outputs_dir=OUTPUTS_DIR)
+        if markdown is None and rules is None:
+            return jsonify({"exists": False, "ip_name": safe_name})
+        return jsonify({"exists": True, "ip_name": safe_name, "markdown": markdown, "rules": rules})
+    except Exception as e:
+        return jsonify({"exists": False, "ip_name": safe_name, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # LINEスタンプ生成結果（Quest94 v2で追加、Quest97でProject別対応）
 # フォルダを開かなくてもDashboard上でProject別に40枚のスタンプ・main/tab・
 # zip・metadataを確認できるようにするためのAPI。

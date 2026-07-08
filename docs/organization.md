@@ -130,6 +130,8 @@ Responsibilities:
 - Prompt Design
 - Reference Analysis
 - IP Bible（IP DNA → IP Bibleの生成、`services/ip_bible_service.py`、Quest105）
+- Creative Style（IP DNA・IP Bible → Style Guide / Prompt Rules、
+  `services/creative_style_service.py`、Quest107）
 
 各AI社員のRole/Responsibility/Input/Output/KPI/Reports Toの詳細は
 [docs/ai_employee_handbook.md](./ai_employee_handbook) を参照。
@@ -261,14 +263,16 @@ Responsibilities:
 
 ---
 
-# IP Team（Quest104〜105・IP Intelligence Sprint）
+# IP Team（Quest104〜107・IP Intelligence Sprint）
 
 Creative Divisionのうち、Character単体ではなく「IP全体の知識」
-（IP Memory・IP Bible、`services/ip_memory_service.py` /
-`services/ip_bible_service.py`）を担当するチーム。Quest105時点では
-組織図・ドキュメント上の役割分担の明文化のみで、実際のAgent分離
-（Luna/Sol/Astra個別のAIエージェント実装）は将来Questで行う
-（現時点ではVegaがChief IP Designerとして4役を実質的に兼務する）。
+（IP Memory・IP Bible・Creative Style、`services/ip_memory_service.py` /
+`services/ip_bible_service.py` / `services/creative_style_service.py`）を
+担当するチーム。Quest107でCreative Style Engine（style_guide.md /
+prompt_rules.json）を担当領域に追加した。組織図・ドキュメント上の役割
+分担の明文化のみで、実際のAgent分離（Luna/Sol/Astra個別のAIエージェント
+実装）は将来Questで行う（現時点ではVegaがChief IP Designerとして4役を
+実質的に兼務する）。
 
 ## 🎨 Vega — Chief IP Designer
 Reports To: CEO
@@ -276,6 +280,7 @@ Reports To: CEO
 Responsibilities:
 - IP Bible全体の統括・最終出力（`services/ip_bible_service.py`）
 - IP DNA（Quest104）からIP Bibleへの変換方針の決定
+- Creative Style Engine全体の統括（`services/creative_style_service.py`、Quest107）
 
 ## 🌙 Luna — Story Designer
 Reports To: Vega (CDO)
@@ -284,6 +289,7 @@ Responsibilities:
 - Story（IP Bibleの物語的背景）
 - Character性格・価値観の言語化
 - Future Evolution（IPの将来的な成長方向）
+- Expression Rules（Style Guide内の表情ルール、Quest107）
 
 ## ☀️ Sol — Visual Designer
 Reports To: Vega (CDO)
@@ -292,6 +298,7 @@ Responsibilities:
 - Visual Identity（線の太さ・目・体型等）
 - Color Palette
 - Style Rules
+- Style Guide（Color/Line/Shape/Composition/Typography Rules、Quest107）
 
 ## ⭐ Astra — Brand Guardian
 Reports To: Vega (CDO)
@@ -299,6 +306,7 @@ Reports To: Vega (CDO)
 Responsibilities:
 - Brand Position（ポジショニング・ターゲット）
 - Forbidden Rules（NG表現・一貫性の番人）
+- Negative Rules・Prompt Rulesのnever/avoid（Quest107）
 
 ---
 

@@ -2033,6 +2033,8 @@ const _DNA_GROUP_LABELS = {
 
 let _selectedIpName = null;
 let _currentIpBibleMarkdown = null;
+let _currentStyleGuideMarkdown = null;
+let _currentPromptRules = null;
 
 function renderIpList(ips) {
   const list = ips || [];
@@ -2166,20 +2168,36 @@ function renderIpDnaPanel(ip) {
       <pre class="ip-bible-preview" id="ipBiblePreview" style="display:none"></pre>
     </div>
 
+    <div class="card full" style="margin-top:14px">
+      <div class="card-title">🎨 Creative Style</div>
+      <div class="creative-direction-text">Style Guide（Markdown）と Prompt Rules（JSON：always/prefer/avoid/never）をIP DNA・IP Bibleから生成します。</div>
+      <div class="reference-edit-actions" style="margin-top:8px">
+        <button class="btn" id="styleGenBtn" onclick="generateCreativeStyle()">🎨 Generate Style Guide</button>
+        <button class="btn" id="stylePreviewBtn" onclick="previewCreativeStyle()">👀 Preview</button>
+        <button class="btn btn-approve" id="styleSaveBtn" onclick="saveCreativeStyle()" disabled>💾 Save</button>
+      </div>
+      <span class="reference-edit-status" id="styleStatus"></span>
+      <pre class="ip-bible-preview" id="stylePreview" style="display:none"></pre>
+      <pre class="ip-bible-preview" id="promptRulesPreview" style="display:none"></pre>
+    </div>
+
     <details class="card full log-section" style="margin-top:14px">
-      <summary><span class="card-title">🚧 Character Bible / World Bible / Style Guide / History（Coming Soon）</span></summary>
+      <summary><span class="card-title">🚧 Character Bible / World Bible / History（Coming Soon）</span></summary>
       <div class="log-section-body">
         <div class="ceo-brief-empty">
-          Character Bible・World Bible・Style Guide・Prompt History・Review History・
+          Character Bible・World Bible・Prompt History・Review History・
           Evolution Historyは今後のQuestで実装予定です（IP Memoryの構造としては
-          ip_memory.json内に既に領域を確保済み）。IP Bibleの個別生成は上のセクションで
-          既に利用できます。
+          ip_memory.json内に既に領域を確保済み）。IP Bible・Creative Style（Style
+          Guide / Prompt Rules）の個別生成は上のセクションで既に利用できます。
         </div>
       </div>
     </details>
   `;
   _currentIpBibleMarkdown = null;
   document.getElementById('ipBibleSaveBtn').disabled = true;
+  _currentStyleGuideMarkdown = null;
+  _currentPromptRules = null;
+  document.getElementById('styleSaveBtn').disabled = true;
 }
 
 function selectIp(ipName) {
@@ -2359,6 +2377,104 @@ function saveIpBible() {
         statusEl.textContent = '✅ IP Bibleを保存しました（ip_bible.md）';
       } else {
         statusEl.textContent = '⚠️ ' + (data.error || 'IP Bibleの保存に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; });
+}
+
+// ────────────────────────────────
+// Quest107：🎨 Creative Style Engine（Style Guide / Prompt Rules）
+// ────────────────────────────────
+
+function _showCreativeStylePreview(markdown, rules) {
+  const stylePre = document.getElementById('stylePreview');
+  stylePre.textContent = markdown || '';
+  stylePre.style.display = '';
+
+  const rulesPre = document.getElementById('promptRulesPreview');
+  rulesPre.textContent = rules ? JSON.stringify(rules, null, 2) : '';
+  rulesPre.style.display = '';
+}
+
+function generateCreativeStyle() {
+  if (!_selectedIpName) return;
+  const btn = document.getElementById('styleGenBtn');
+  const statusEl = document.getElementById('styleStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中...';
+  statusEl.textContent = '';
+
+  fetch('/api/ip-memory/style/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: _selectedIpName }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok && data.markdown && data.rules) {
+        _currentStyleGuideMarkdown = data.markdown;
+        _currentPromptRules = data.rules;
+        _showCreativeStylePreview(data.markdown, data.rules);
+        document.getElementById('styleSaveBtn').disabled = false;
+        const sourceLabel = data.markdown_source === 'ai' ? 'AI生成' : 'テンプレート生成';
+        statusEl.textContent = `✅ Creative Styleを生成しました（${sourceLabel}）。内容を確認してSaveしてください。`;
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || 'Creative Styleの生成に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '🎨 Generate Style Guide';
+    });
+}
+
+function previewCreativeStyle() {
+  if (!_selectedIpName) return;
+  const statusEl = document.getElementById('styleStatus');
+
+  if (_currentStyleGuideMarkdown) {
+    const stylePre = document.getElementById('stylePreview');
+    const rulesPre = document.getElementById('promptRulesPreview');
+    const nowHidden = stylePre.style.display === 'none';
+    stylePre.style.display = nowHidden ? '' : 'none';
+    rulesPre.style.display = nowHidden ? '' : 'none';
+    return;
+  }
+
+  statusEl.textContent = '⏳ 保存済みCreative Styleを確認中...';
+  fetch(`/api/ip-memory/${encodeURIComponent(_selectedIpName)}/style`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.exists && (data.markdown || data.rules)) {
+        _currentStyleGuideMarkdown = data.markdown;
+        _currentPromptRules = data.rules;
+        _showCreativeStylePreview(data.markdown, data.rules);
+        document.getElementById('styleSaveBtn').disabled = false;
+        statusEl.textContent = '✅ 保存済みCreative Styleを表示しています。';
+      } else {
+        statusEl.textContent = 'まだCreative Styleは生成されていません。「Generate Style Guide」から作成してください。';
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; });
+}
+
+function saveCreativeStyle() {
+  if (!_selectedIpName || !_currentStyleGuideMarkdown || !_currentPromptRules) return;
+  const statusEl = document.getElementById('styleStatus');
+  statusEl.textContent = '⏳ 保存中...';
+
+  fetch('/api/ip-memory/style/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: _selectedIpName, markdown: _currentStyleGuideMarkdown, rules: _currentPromptRules }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        statusEl.textContent = '✅ Creative Styleを保存しました（style_guide.md / prompt_rules.json）';
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || 'Creative Styleの保存に失敗しました');
       }
     })
     .catch(e => { statusEl.textContent = 'エラー: ' + e; });
