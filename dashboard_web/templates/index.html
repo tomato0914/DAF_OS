@@ -1157,6 +1157,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
             ${canGenerateAssets
               ? `<button class="btn btn-approve" onclick="generateProjectAssets('${esc(p.id)}', this)">Generate Assets</button>`
               : ''}
+            <button class="btn" onclick="buildProjectPrompt('${esc(p.id)}', this)">④ プロンプト生成</button>
             ${p.status !== 'archived'
               ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
               : ''}
@@ -1166,6 +1167,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
     });
     html += '</tbody></table></div>';
   }
+  html += '<div id="promptBuilderResultContent"></div>';
 
   document.getElementById('projectListContent').innerHTML = html;
 }
@@ -2784,6 +2786,49 @@ function generateProjectAssets(projectId, btnEl) {
     .catch(e => alert('エラー: ' + e))
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Generate Assets'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest108：④ Prompt Builder v2（IP Bible・Creative Style・Reference
+// Summary・Project情報から画像生成AI向けプロンプトを生成・保存する。
+// 画像生成AI自体は呼ばない。
+// ────────────────────────────────
+
+function renderPromptBuilderResult(projectId, data) {
+  const container = document.getElementById('promptBuilderResultContent');
+  if (!container) return;
+
+  if (!data.ok) {
+    container.innerHTML = `<div class="card full error-box">⚠️ プロンプト生成に失敗しました: ${esc(data.error || '')}</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">④ プロンプト生成結果（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text">保存先: <code>${esc(data.path || '-')}</code></div>
+      <pre class="ip-bible-preview" style="margin-top:8px">${esc(data.prompt || '')}</pre>
+    </div>
+  `;
+}
+
+function buildProjectPrompt(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 生成中...'; }
+
+  fetch('/api/projects/build-prompt', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId }),
+  })
+    .then(r => r.json())
+    .then(data => renderPromptBuilderResult(projectId, data))
+    .catch(e => {
+      const container = document.getElementById('promptBuilderResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '④ プロンプト生成'; }
     });
 }
 

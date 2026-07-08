@@ -590,6 +590,52 @@ def api_projects_generate_assets():
 
 
 # ──────────────────────────────────────────
+# Prompt Builder v2（Quest108・Production Phaseの開始）
+# IP Bible・Creative Style・Reference Summary・Project情報から画像生成AI向け
+# プロンプトを組み立てる。画像生成AI自体は呼ばない（プロンプト文字列の生成
+# ・保存まで）。Projectsタブの「④ プロンプト生成」ボタンから呼ばれる。
+# ──────────────────────────────────────────
+
+@app.route("/api/projects/build-prompt", methods=["POST"])
+def api_projects_build_prompt():
+    """
+    指定Projectのプロンプトを生成・保存する（1回の実行で生成→保存→
+    内容表示まで行うDashboard側のUXに合わせ、save=Trueで呼ぶ）。
+    ip_nameは任意（未指定でもReference Summary・Project Visionのみで
+    プロンプトを組み立てる）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        ip_name = str(data.get("ip_name", "")).strip() or None
+
+        from services.prompt_builder_v2 import build_prompt
+        result = build_prompt(
+            project_id, ip_name=ip_name, save=True,
+            outputs_dir=OUTPUTS_DIR, projects_dir=PROJECTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/prompts")
+def api_projects_list_prompts(project_id):
+    """指定Projectの保存済みプロンプト一覧を返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"prompts": [], "error": "無効なProject IDです"}), 400
+    try:
+        from services.prompt_builder_v2 import list_prompts
+        return jsonify({"prompts": list_prompts(safe_id, outputs_dir=OUTPUTS_DIR)})
+    except Exception as e:
+        return jsonify({"prompts": [], "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても
