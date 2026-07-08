@@ -2823,3 +2823,95 @@ Quest109で生成したLINEスタンプ画像を、必要な時だけAIレビュ
 - Export Engine（ZIP化、Quest111以降）
 - 画像修正・再生成フロー
 - Project × IP Memoryの紐付け永続化
+
+---
+
+# 最新状況（2026-07-08・Quest111：Export Engine）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence → Production Phase**
+
+## 完了Quest
+Quest111まで完了。
+
+## Quest111内容
+Production Pipeline（`Prompt → Image Generation → AI Review → CEO確認`）の
+最終段として、生成済み画像をLINE Creators Market提出形式へ変換する
+Export Engineを追加した。実際の申請（アップロード）は行わず、ローカルに
+提出用package・ZIP・レポートを作るところまで。
+
+- `services/export_engine.py`：新規。
+  - `BaseExportAdapter` / `LineExportAdapter` — プラットフォーム固有の
+    検証・構成ルールをAdapterに閉じ込める設計。Export Engine本体
+    （`export_project()`等）は`validate()` / `build_package()`という
+    共通インターフェースだけを呼び、LINE専用ロジックは一切書かない。
+    `_EXPORT_ADAPTERS`辞書にAdapterを追加するだけで、将来
+    `LINE → Discord → Telegram → WhatsApp`等へ拡張できる。
+  - `LineExportAdapter`：画像存在・PNG形式・サイズ一致・画像枚数
+    （LINE Creators Marketの目安8〜40枚、Quest109時点は最大3枚生成の
+    ため今後拡張予定として警告扱い）・main.png/tab.png存在をチェック。
+    main.png/tab.pngが未生成の場合はエラーにせず、Export時に
+    `services/image_generation_service.render_icon_image()`
+    （Quest98、無変更）でその場自動生成する。
+  - `check_export_readiness()` — Export前チェックを行いREADY判定を返す
+    （保存はしない）
+  - `build_export_package()` — `outputs/exports/<project_id>/package/`
+    （stickers/・main.png・tab.png・metadata.json）を作成
+  - `create_export_zip()` — packageの中身を`line_stickers.zip`へZIP化
+  - `generate_export_report()` / `export_project()` — Export Report
+    保存、および生成画像取得〜Export Report保存までを1回で行う
+    エントリポイント
+  - `load_export_report()` — 保存済みexport_report.jsonの読込
+- `dashboard_web/app.py`：
+  - `POST /api/projects/export` — Export実行（package作成・ZIP化・
+    レポート保存）
+  - `GET /api/projects/<project_id>/export-report` — 保存済みレポート取得
+  - `GET /api/projects/<project_id>/download-export` — ZIPダウンロード
+    （export_report.jsonのzip_fileを参照して配信、ファイル名ハードコード
+    無し）
+- `dashboard_web/templates/index.html`：Projectsタブに「⑦ Export」
+  ボタンを追加。READY/NOT READY・errors・warnings・ダウンロードリンクを
+  Dashboard上に表示する。
+- `tests/test_quest111_export_engine.py`：新規（17件）。ZIP生成
+  （main.png/tab.png/metadata.json/stickers/*を含むことを確認）、
+  metadata.json・export_report.jsonの必須キー、READY判定（画像0枚は
+  false、有効なPNGはtrue）、package作成→ZIP作成の順序依存、
+  LineExportAdapterの基本情報、Flask API層のバリデーション
+  （不正project_id・画像不足エラー・未Export時の404）を検証。
+
+## 動作確認結果
+- Dashboard起動・Projectsタブ表示：OK（既存機能に回帰なし）
+- 実ブラウザ操作でProject 001に対し「④ プロンプト生成」→「⑤ 画像生成」
+  （2枚）→「⑦ Export」を実行 → `package/`（stickers/sticker_001.png・
+  sticker_002.png・main.png・tab.png・metadata.json）と
+  `line_stickers.zip`が正しく生成され、Dashboard上にREADY表示・警告・
+  ダウンロードリンクが表示されることを確認
+- ダウンロードリンクから実際に`line_stickers.zip`を取得し、`unzip -l`で
+  中身（5ファイル）が仕様通りであることを確認
+- `GET /api/projects/001/export-report`が保存済みレポートを正しく
+  返すことを確認
+- Generated Assets・IP Memory・Referencesタブ等：回帰なし
+- `tests/`配下154件（Quest102〜110の137件＋Quest111の17件）すべてpass
+
+## commit / push
+- commit hash：`abfb646`（`feat: add export engine`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- 実際にLINE Creators Marketへ提出するフロー（申請自体はQuest111時点で
+  未実装、方針として意図的に対象外）
+- Discord / Telegram / WhatsApp向けExport Adapterの追加
+  （`_EXPORT_ADAPTERS`への登録のみで対応可能な設計）
+- CEOがAIレビュー結果を踏まえて承認・却下する導線
+  （CEO Decision Centerとの連携）
+- 40枚生成への拡張（Quest109の`MAX_GENERATION_COUNT`引き上げ）
+
+## 今後のロードマップ
+- 複数プラットフォームExport Adapter追加
+- AIレビュー結果 × CEO承認フローの接続
+- 40枚生成対応・画像生成AIの本番接続確認
+- Project × IP Memoryの紐付け永続化
