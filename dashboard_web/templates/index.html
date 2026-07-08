@@ -1167,6 +1167,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
             <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
             <button class="btn btn-approve" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出用ZIP作成</button>
             <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
+            <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 LINEスタンプを作る</button>
             ${p.status !== 'archived'
               ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
               : ''}
@@ -1181,6 +1182,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
   html += '<div id="aiReviewResultContent"></div>';
   html += '<div id="exportResultContent"></div>';
   html += '<div id="productionStatusResultContent"></div>';
+  html += '<div id="productionRunResultContent"></div>';
 
   document.getElementById('projectListContent').innerHTML = html;
 }
@@ -3093,6 +3095,73 @@ function showProductionStatus(projectId, btnEl) {
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '📊 進行状況を見る'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest113：🚀 One-Click Production Flow（Production Orchestrator）
+// ④ プロンプト生成 → ⑤ 画像生成 → ⑥ AIレビュー → ⑦ Exportを1クリックで
+// 最後まで実行する。既存Service（Quest108〜111）の呼び出し順を束ねるだけで、
+// 各Serviceの実装には手を加えない。
+// ────────────────────────────────
+
+const PRODUCTION_STEP_LABELS = {
+  prompt: '④ プロンプト生成',
+  image_generation: '⑤ 画像生成',
+  ai_review: '⑥ AIレビュー',
+  export: '⑦ Export',
+};
+
+function renderProductionRunResult(projectId, data) {
+  const container = document.getElementById('productionRunResultContent');
+  if (!container) return;
+
+  if (!data.ok) {
+    const failedStepLabel = PRODUCTION_STEP_LABELS[data.failed_step] || data.failed_step || '-';
+    container.innerHTML = `
+      <div class="card full error-box">
+        ⚠️ LINEスタンプ制作が停止しました（失敗ステップ: ${esc(failedStepLabel)}）<br>
+        ${esc(data.error || '')}
+      </div>
+    `;
+    return;
+  }
+
+  const reviewLabel = data.review_needs_fix ? '完了（⚠️ 要確認あり）' : '完了';
+  const zipLabel = data.zip_filename ? `生成済み（${esc(data.zip_filename)}）` : '未生成';
+  const downloadHtml = data.zip_filename
+    ? `<a class="btn btn-approve" href="/api/projects/${encodeURIComponent(projectId)}/download-export" download>⬇ ${esc(data.zip_filename)} をダウンロード</a>`
+    : '';
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">🚀 LINEスタンプ制作が完了しました（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text">生成画像：${Number(data.image_count || 0)}枚</div>
+      <div class="creative-direction-text">レビュー：${reviewLabel}</div>
+      <div class="creative-direction-text">ZIP：${zipLabel}</div>
+      <div class="creative-direction-text" style="margin-top:8px"><strong>次にやること</strong></div>
+      <div class="creative-direction-text">${esc(data.next_action || '')}</div>
+      <div style="margin-top:10px">${downloadHtml}</div>
+    </div>
+  `;
+}
+
+function runProductionFlow(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 制作中...'; }
+
+  fetch('/api/projects/run-production', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId }),
+  })
+    .then(r => r.json())
+    .then(data => renderProductionRunResult(projectId, data))
+    .catch(e => {
+      const container = document.getElementById('productionRunResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 LINEスタンプを作る'; }
     });
 }
 

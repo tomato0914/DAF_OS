@@ -849,6 +849,68 @@ def api_projects_production_status(project_id):
 
 
 # ──────────────────────────────────────────
+# Production Orchestrator（Quest113・One-Click Production Flow）
+# Quest108〜111の各Service（Prompt Builder v2 → Image Generation Pipeline →
+# AI Review Engine → Export Engine）をそのまま順番に呼び出すだけで、
+# CEOが「🚀 LINEスタンプを作る」ボタン1つで最後まで実行できるようにする。
+# 各Serviceの実装・責務は変更しない。
+# ──────────────────────────────────────────
+
+@app.route("/api/projects/run-production", methods=["POST"])
+def api_projects_run_production():
+    """
+    指定Projectの制作工程（プロンプト生成→画像生成→AIレビュー→Export）を
+    1回で最後まで実行する（Projectsタブの「🚀 LINEスタンプを作る」
+    ボタンから呼ばれる）。途中のステップが失敗した場合はそこで停止し、
+    failed_step・errorを含むレポートを返す。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        ip_name = str(data.get("ip_name", "")).strip() or None
+        asset_type = str(data.get("asset_type", "")).strip() or None
+        platform = str(data.get("platform", "")).strip() or None
+        raw_count = data.get("count")
+        try:
+            count = int(raw_count) if raw_count is not None else None
+        except (TypeError, ValueError):
+            count = None
+
+        from services.production_orchestrator import (
+            run_production, DEFAULT_ASSET_TYPE, DEFAULT_COUNT, DEFAULT_PLATFORM,
+        )
+        result = run_production(
+            project_id, ip_name=ip_name,
+            asset_type=asset_type or DEFAULT_ASSET_TYPE,
+            count=count or DEFAULT_COUNT,
+            platform=platform or DEFAULT_PLATFORM,
+            outputs_dir=OUTPUTS_DIR, projects_dir=PROJECTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/production-report")
+def api_projects_production_report(project_id):
+    """指定Projectの保存済みproduction_report.jsonを返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"exists": False, "error": "無効なProject IDです"}), 400
+    try:
+        from services.production_orchestrator import load_production_report
+        report = load_production_report(safe_id, outputs_dir=OUTPUTS_DIR)
+        if report is None:
+            return jsonify({"exists": False, "project_id": safe_id})
+        return jsonify({"exists": True, "project_id": safe_id, "report": report})
+    except Exception as e:
+        return jsonify({"exists": False, "project_id": safe_id, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても
