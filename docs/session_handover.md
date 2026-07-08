@@ -2646,3 +2646,92 @@ v2」を実装した。Production Phaseの開始となるQuest。
 - Project × IP Memoryの紐付け永続化
 - Character Bible / World Bible個別実装
 - IP Team・Quality Teamの実Agent化
+
+---
+
+# 最新状況（2026-07-08・Quest109：Image Generation Pipeline）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence → Production Phase**
+
+## 完了Quest
+Quest109まで完了。
+
+## Quest109内容
+Quest108のPrompt Builder v2が保存した最新プロンプトを使い、実際に画像を
+生成・保存し、DashboardでPreviewできるところまでをつなげた
+（`Prompt → 画像生成 → 保存 → Dashboard表示`）。Production Phaseの中核
+として、本Questでは画像生成AIの利用を許可した（Lean AI Firstの優先順位
+は維持しつつ、AI未設定・失敗時は必ずPillowへフォールバックする設計）。
+
+- `services/image_generation_pipeline.py`：新規。
+  - `get_latest_prompt(project_id)` — Quest108の`list_prompts()`/
+    `load_prompt()`をそのまま利用し、保存済み最新プロンプトを読み込む
+    （Prompt Builder v2側には一切変更を加えていない）
+  - `generate_images(project_id, asset_type="line_sticker", count=1)` —
+    最新Prompt取得→画像生成→保存→`metadata.json`保存までを1回で行う。
+    countは1〜3枚（`MAX_GENERATION_COUNT`定数、将来40枚へ拡張する場合も
+    この定数を変えるだけで済む設計）。先頭1枚でAI画像生成
+    （`OPENAI_API_KEY`設定時、`litellm.image_generation()`経由でDALL-E系
+    モデル）を試行し、失敗したらバッチ全体をPillowフォールバック
+    （既存の`services/image_generation_service.py`のrender_stamp_image()
+    をそのまま再利用、Quest98実装への変更なし）へ切り替える（画像ごとの
+    AI/Pillow混在を避けるため、切替はバッチ単位）
+  - `list_generated_images(project_id, asset_type)` — 保存済み画像一覧・
+    metadataを読み取り専用で返す
+  - 保存先：`outputs/generated_assets/line_sticker/<project_id>/
+    sticker_001.png ... metadata.json`（既存Asset Generator・Quest90〜97
+    が使う`stamp_*.png`/`main.png`/`tab.png`/`metadata.md`とファイル名が
+    衝突しないため同じディレクトリを安全に共用。1回の実行が「その時点の
+    生成結果」を表し、`sticker_001.png`から毎回上書き保存する）
+  - metadata.jsonの必須キー：project_id / asset_type / prompt_file /
+    image_files / generated_at / generation_mode（"ai" or "fallback_pillow"）
+- `dashboard_web/app.py`：
+  - `POST /api/projects/generate-image` — 画像生成・保存を実行
+  - `GET /api/projects/<project_id>/generated-images` — 生成済み画像・
+    metadata一覧を返す
+  - `GET /api/generated-assets/image/<path:filename>` — 画像配信
+    （png限定、`outputs/generated_assets/`配下を広く対象にする汎用ルート。
+    既存の`/generated-assets/line-sticker/<path:filename>`とは独立）
+- `dashboard_web/templates/index.html`：Projectsタブの各Project行に
+  枚数選択（1枚／2枚／3枚のプルダウン）＋「⑤ 画像生成」ボタンを追加。
+  クリックで生成・保存・サムネイル表示までを1回の実行で完了する
+  （生成方式＝AI生成／Pillowフォールバックのラベルも表示）。
+- `tests/test_quest109_image_generation_pipeline.py`：新規（16件）。
+  最新プロンプト読込、画像生成の呼び出し・ファイル保存・metadata.json
+  保存（必須6キー）、count上限（999指定でも3枚に丸まる）・下限（0指定でも
+  1枚）、プロンプト未生成時のエラー、Dashboard APIのバリデーション
+  （不正project_id・画像一覧取得・png以外の配信拒否）を検証。
+
+## 動作確認結果
+- Dashboard起動・Projectsタブ表示：OK（既存機能に回帰なし）
+- 実ブラウザ操作でProject 001に対し「④ プロンプト生成」→枚数を2枚に
+  設定して「⑤ 画像生成」→`OPENAI_API_KEY`未設定のためPillow
+  フォールバックが自動選択され、`sticker_001.png`/`sticker_002.png`が
+  正しく保存されDashboard上にサムネイル表示されることを確認
+- `GET /api/projects/001/generated-images`がmetadata.jsonの内容
+  （generation_mode: fallback_pillow等）を正しく返すことを確認
+- Generated Assets・IP Memory・Referencesタブ等：回帰なし
+- `tests/`配下119件（Quest102〜108の103件＋Quest109の16件）すべてpass
+
+## commit / push
+- commit hash：`ef39900`（`feat: add image generation pipeline`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- LINE Creators Market提出用ZIP化・Export Engine（Quest109では対象外、
+  Quest111以降で実装予定）
+- 実際のAI画像生成API（`OPENAI_API_KEY`）を設定した上での本番動作確認
+- 40枚生成への拡張（`MAX_GENERATION_COUNT`の引き上げ）
+- ProjectとIP（ip_name）の紐付け永続化
+- Character Bible個別生成・World Bible個別生成
+
+## 今後のロードマップ
+- Export Engine（ZIP化、Quest111以降）
+- 画像生成AIの本番接続確認・40枚生成対応
+- Project × IP Memoryの紐付け永続化
+- Character Bible / World Bible個別実装
