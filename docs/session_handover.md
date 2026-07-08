@@ -2132,3 +2132,104 @@ APIキーはコードに直書きせず、`os.getenv("OPENROUTER_API_KEY")`で
 ## 今後のロードマップ
 - Quest104：Character Bible強化
 - Quest105：画像生成AI導入
+
+---
+
+# 最新状況（2026-07-08・Quest104：IP Memory Engine）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence（開始）**
+
+## 完了Quest
+Quest104まで完了。
+
+## Quest104内容
+Quest101〜103はReference画像（1件単位）の登録・解析までだった。Quest104で
+「Character単体ではなくIP全体の知識を蓄積・成長させる基盤」として
+IP Memory Engineを導入した。設計思想は
+`Reference（画像）→ Analysis（Quest103のAI解析）→ IP Memory（本質の蓄積）
+→ Asset Generation（将来）`という流れ。
+
+IP Memoryは1つのIPにつき`DNA / Character Bible / World Bible / Style Guide /
+Prompt History / Review History / Evolution History`の7セクション構造とし、
+今回実装したのはDNAのみ。他セクションはキーだけ確保した空のプレースホルダ
+（Dashboard上はComing Soon表示）で、将来のQuestでも`ip_memory.json`の
+スキーマ自体は変えずに実装を追加できる。
+
+- `services/ip_memory_service.py`：新規。
+  - `create_ip(ip_name)` — DNA（identity/personality/visual/brand/rules/
+    keywords）含む全セクションの空箱を作成。既存IPがあれば上書きせず
+    既存データを返す（誤って空箱で潰さない安全策）。
+  - `load_ip()` / `save_ip()` — `outputs/ip_memory/<ip_name>/ip_memory.json`の
+    読込・全体保存。`save_ip()`は`metadata.updated_at`更新・`version`
+    インクリメントを行う。
+  - `list_ips()` — 登録済みIP一覧（Dashboard向け、dna_name/version/
+    updated_at付き）。
+  - `update_dna(ip_name, dna_updates)` — DNAグループ単位で部分更新し、
+    未指定フィールド・他セクション・`metadata.created_at`は保持する。
+    IP未作成なら`create_ip()`相当で新規作成してから更新。
+  - `generate_dna_from_reference(ip_name, project_id=None, category=None)` —
+    登録済みReference（Quest103解析済みのtags/animal/color/mood/memo）を
+    project_id/categoryで絞り込み、複数件の共通特徴からDNAの"提案"を
+    生成する（**保存はしない**。呼び出し側がupdate_dna()/save_ip()を
+    呼んで初めて反映）。Referenceの複製ではなく「複数枚に共通する本質」を
+    抽出するようVega視点のプロンプトで指示。`OPENROUTER_API_KEY`設定時は
+    `crews/meeting_crew.py`と同じOpenRouter経由`gpt-4o-mini`を
+    `litellm.completion()`で呼ぶ（画像は渡さず、Quest103解析結果という
+    テキストメタデータのみを渡す）。未設定・AI失敗時は頻出タグ/動物/
+    配色/雰囲気の単純集計にフォールバックし、例外を投げない。
+  - IP名は`_safe_ip_name()`で英数字・ハイフン・アンダースコアのみに
+    丸め、パストラバーサル対策済み。`outputs/reference_library/`とは
+    物理的に完全分離（`outputs/ip_memory/`）。
+- `dashboard_web/app.py`：
+  - `GET /api/ip-memory` — IP一覧
+  - `GET /api/ip-memory/<ip_name>` — IP詳細（DNA含む全セクション）
+  - `POST /api/ip-memory/create` — 新規IP作成
+  - `POST /api/ip-memory/dna/update` — DNA部分更新・保存
+  - `POST /api/ip-memory/dna/generate` — ReferenceからDNA提案を生成（保存しない）
+- `dashboard_web/templates/index.html`：🧬 IP Memoryタブを追加。New IP作成
+  フォーム／IP一覧テーブル／IP選択でDNA編集パネル展開（Identity/
+  Personality/Visual/Brand/Rules/Keywordsの各フィールドを個別input化）／
+  「🤖 Generate DNA from Reference」（project_id・category任意指定）→
+  提案を編集欄に反映→「💾 Save DNA」で保存、という一連の操作を追加。
+  Character Bible等は`<details>`内にComing Soon文言で表示。既存CSSクラス
+  （project-form・simple-table・reference-edit-actions等）を再利用し、
+  style.cssの変更は無し。
+- `tests/test_quest104_ip_memory.py`：新規（16件）。IP作成・上書き防止・
+  空名拒否、save/load往復、DNA部分更新（既存フィールド保持）、
+  IP未作成時のupdate_dnaからの自動作成、list_ips、Reference無し時の
+  エラー、`OPENROUTER_API_KEY`未設定時のフォールバック集計、Flask API層
+  の入力バリデーション（空名・不正ip_name・存在しないIP）を検証。
+
+## 確認済み事項（CEO確認済み）
+1. `.env`・`OPENROUTER_API_KEY`はgit管理対象に含まれない（`.gitignore`で
+   `.env`除外、コード内にキーのハードコード無し、`os.getenv()`のみ使用）。
+2. `outputs/ip_memory/`は`.gitignore`の`outputs/`ルールに含まれ、テスト
+   生成物・実データともcommit対象外。
+3. IP名は`_safe_ip_name()`（サービス層、`\w\-`以外を`_`へ丸める）・
+   `_safe_ip_name_param()`（app.py、URLパス用に`^[\w\-]+$`で拒否）の
+   二重チェックでパストラバーサル対策済み。
+4. AI生成失敗時（不正なAPIキーで`litellm.AuthenticationError`を実際に
+   誘発させて確認）も例外を投げず、`ok=True, source="fallback_aggregation"`
+   で簡易集計結果を返すため、Dashboard全体は落ちない。
+
+## 動作確認結果
+- Dashboard起動・IP Memoryタブ表示：OK（既存タブに回帰なし）
+- 実ブラウザ操作でIP作成→自動でDNAパネル展開→実際にOpenRouter APIを呼び出し
+  「Generate DNA from Reference」でDNA提案を生成→編集→「Save DNA」→
+  `ip_memory.json`が正しく更新（`version`自動インクリメント）されることを確認
+- References・Projectsタブ等：回帰なし
+- `tests/`配下29件（Quest102の4件＋Quest103の9件＋Quest104の16件）すべてpass
+
+## 次のQuest候補
+- Character Bible（IP Memory内の空プレースホルダを実装）
+- World Bible / Style Guide
+- Prompt History / Review History / Evolution Historyの記録開始
+- Quest105：画像生成AI導入
+
+## 今後のロードマップ
+- Character Bible強化
+- World Bible / Style Guide実装
+- Quest105：画像生成AI導入
