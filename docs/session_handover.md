@@ -2233,3 +2233,109 @@ Prompt History / Review History / Evolution History`の7セクション構造と
 - Character Bible強化
 - World Bible / Style Guide実装
 - Quest105：画像生成AI導入
+
+---
+
+# 最新状況（2026-07-08・Quest105：IP Bible Generator）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence**
+
+## 完了Quest
+Quest105まで完了。
+
+## Quest105内容
+Quest104で構築したIP Memory（DNA）から、人とAIが共通認識として使える
+「IP Bible」（IP全体の設計書。Character設定だけでなくWorld・Brand・Style
+まで含む）をMarkdownで生成できるようにした。設計思想（全体の流れ）：
+`Reference → Reference Analysis（Quest103）→ IP Memory（Quest104）→
+IP DNA → IP Bible（本Quest）→ Prompt Builder（将来）→ Asset Generation（将来）`。
+
+- `services/ip_bible_service.py`：新規。
+  - `generate_ip_bible(ip_name)` — IP DNAを入力に、Vega（Chief IP Designer）
+    視点のプロンプトでIP Bible（Markdown）の"提案"を生成する（**保存は
+    しない**。Quest103/104と同じ「AIは提案、CEOが確認・保存」方針）。
+    `OPENROUTER_API_KEY`設定時はOpenRouter経由`gpt-4o-mini`を
+    `litellm.completion()`で呼び、Identity/Story/Core Personality/
+    Visual Identity/Color Palette/World/Brand Position/Style Rules/
+    Forbidden Rules/Prompt Examples/Future Evolutionの11見出しを含む
+    Markdownを要求する（応答に`## Identity`が無い等、期待構造を満たさない
+    場合もテンプレートへフォールバック）。未設定・AI失敗時は、DNAの値を
+    そのまま差し込む決定的なテンプレート（`_template_ip_bible()`）を返す。
+  - `save_ip_bible(ip_name, markdown)` — `outputs/ip_memory/<ip_name>/
+    ip_bible.md`へ保存する（プレーンなUTF-8テキストファイル。HTML化・
+    特殊フォーマットはしない）。IP未作成の場合はエラー。
+  - `load_ip_bible(ip_name)` — 保存済みip_bible.mdを読み込む。未存在なら
+    Noneを返す。
+  - **IP Memory（`ip_memory.json`）には一切書き込まない**：generate/save/
+    loadいずれの関数も`ip_memory.json`をread-onlyでしか参照しない
+    （`save_ip()`/`update_dna()`の呼び出しなし）。実際にIP Bible生成・
+    保存の前後で`ip_memory.json`のSHA-256ハッシュ・mtimeが完全一致する
+    ことを確認済み（CEO確認事項、後述）。
+- `services/ip_memory_service.py`：`ip_dir_path()`を公開追加（IPフォルダの
+  Pathを組み立てるロジックを`ip_bible_service.py`と共有し、パス組み立ての
+  重複実装を避けるため。既存関数への変更は無し）。
+- `dashboard_web/app.py`：
+  - `POST /api/ip-memory/bible/generate` — IP Bible提案を生成（保存しない）
+  - `POST /api/ip-memory/bible/save` — 生成済みMarkdownをip_bible.mdへ保存
+  - `GET /api/ip-memory/<ip_name>/bible` — 保存済みIP Bibleを取得（Preview用）
+- `dashboard_web/templates/index.html` / `static/style.css`：IP Memoryタブの
+  DNAパネル下に「📖 IP Bible」カードを追加。`📖 Generate IP Bible`（AI提案
+  生成）→ `<pre>`でMarkdownをそのままプレビュー → `👀 Preview`（未生成なら
+  保存済みip_bible.mdを取得表示、生成済みなら表示トグル）→ `💾 Save`で保存、
+  という一連の操作を追加。Character Bible等は引き続きComing Soon表示。
+- `docs/organization.md` / `docs/ai_employee_handbook.md`：Creative
+  Divisionに「IP Team」を新設（ドキュメント上の役割分担のみ、実際の
+  Agent分離は将来Quest）：
+  - 🎨 Vega — Chief IP Designer（IP Bible全体の統括・最終出力）
+  - 🌙 Luna — Story Designer（Story / Core Personality / Future Evolution）
+  - ☀️ Sol — Visual Designer（Visual Identity / Color Palette / Style Rules）
+  - 🛰️ Astra — Brand Guardian（Brand Position / Forbidden Rules）
+  Quest105時点では`services/ip_bible_service.py`のAI呼び出しはVega視点の
+  プロンプト1本で、Luna/Sol/Astraの担当領域もすべてVegaの出力に含まれる
+  （個別Agent化は未実装）。
+- `tests/test_quest105_ip_bible.py`：新規（11件）。テンプレートフォールバック
+  生成（11見出しすべて含む・DNA値がそのまま反映される）、IP未存在時の
+  エラー、空DNAでも生成できること、save/load往復、Reference Libraryとは
+  別フォルダに保存されること、Flask API層の入力バリデーション
+  （空名・存在しないIP・空Markdown）を検証。
+
+## 確認済み事項（CEO確認済み）
+1. `ip_bible.md`はプレーンなMarkdownテキストファイル（`file`コマンドで
+   "Unicode text, UTF-8 text"、HTML等でラップしない）。Markdown Viewer
+   以外（`cat`・テキストエディタ等）でも問題なく読める。
+2. `ip_memory.json`のスキーマは既にQuest104で`character_bible` /
+   `world_bible` / `style_guide`を空のプレースホルダとして確保済み。
+   `ip_bible_service.py`は完全に独立した新規ファイルであり、将来
+   Character Bible / World Bible / Style Guideを個別生成する場合も、
+   同じパターン（新規service + 既存プレースホルダへの書き込み）で
+   現在の構成を変更せず追加だけで実現できる。
+3. IP Bible生成・保存の前後で`ip_memory.json`が変更されないことを実際に
+   ハッシュ比較で確認済み（生成後・保存後ともSHA-256・mtimeが完全一致）。
+   コード上も`ip_bible_service.py`内に`save_ip`/`update_dna`/`json.dump`の
+   呼び出しは無い。
+
+## 動作確認結果
+- Dashboard起動・IP Memoryタブ表示：OK（既存タブに回帰なし）
+- 実ブラウザ操作でIP作成→DNA生成→DNA保存→IP Bible生成（実際にOpenRouter
+  APIを呼び出し）→Preview表示→Save→`ip_bible.md`が`ip_memory.json`と
+  同じフォルダに正しく保存されることを確認
+- 保存済みIP Bibleの再Preview（ディスクからの読込）も確認
+- References・Projectsタブ等：回帰なし
+- `tests/`配下40件（Quest102の4件＋Quest103の9件＋Quest104の16件＋
+  Quest105の11件）すべてpass
+
+## 次のQuest候補
+- Character Bible個別生成（IP Memory内の空プレースホルダを実装）
+- World Bible / Style Guide個別生成
+- Luna / Sol / Astraの実際のAgent分離（現状はVegaのプロンプト1本が代行）
+- Prompt Builderとの接続（IP BibleをPrompt Builderへ渡す導線）
+- 画像生成AI導入
+
+## 今後のロードマップ
+- Character Bible / World Bible / Style Guide個別実装
+- IP Team（Luna/Sol/Astra）の実Agent化
+- Prompt Builder連携
+- 画像生成AI導入
