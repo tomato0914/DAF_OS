@@ -2449,3 +2449,119 @@ Quest106でその先頭のPython層として、AI Review（Vision API・LLM判�
 - Character Bible / World Bible / Style Guide個別実装
 - IP Team・Quality Teamの実Agent化
 - 画像生成AI導入
+
+---
+
+# 最新状況（2026-07-08・Quest107：Creative Style Engine）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence**
+
+## 完了Quest
+Quest107まで完了。
+
+## Quest107内容
+`Reference → Reference Analysis（Quest103）→ IP Memory（Quest104）→
+IP DNA → IP Bible（Quest105）`の流れの最後の変換層として、IP DNA・
+IP Bibleから実制作（イラスト・画像生成AI・LINEスタンプ等）で使う具体的な
+描画ルール「Style Guide」（Markdown）と、Prompt Builder（将来）が機械的に
+使えるルール「Prompt Rules」（JSON：always/prefer/avoid/never）を生成する
+Creative Style Engineを追加した。
+
+- `services/creative_style_service.py`：新規。
+  - `generate_style_guide(ip_name)` — IP DNA・IP Bibleを入力に、Vega
+    （Chief IP Designer）視点のプロンプトでStyle Guide（Markdown）の
+    "提案"を生成する（**保存はしない**。Quest103〜106と同じ「AIは提案、
+    CEOが確認・保存」方針）。`OPENROUTER_API_KEY`設定時はOpenRouter経由
+    `gpt-4o-mini`を`litellm.completion()`で呼び、Color Rules/Line Rules/
+    Shape Rules/Expression Rules/Composition Rules/Typography Rules/
+    Negative Rulesの7見出しを含むMarkdownを要求する（`## Color Rules`が
+    応答に無い等、期待構造を満たさない場合もテンプレートへフォールバック）。
+    未設定・AI失敗時は、DNAの値をそのまま差し込む決定的なテンプレート
+    （`_template_style_guide()`）を返す。
+  - `generate_prompt_rules(ip_name)` — 同じくIP DNA・IP Bibleを入力に、
+    `{"always": [], "prefer": [], "avoid": [], "never": []}`のPrompt
+    Rules（JSON）の"提案"を生成する（保存はしない）。フォールバック時は
+    `visual.color_palette`/`line_style`/`rules.must_have`をalwaysへ、
+    `keywords`をpreferへ、`rules.must_not`をneverへ機械的に分類する
+    （`_template_prompt_rules()`）。
+  - `save_style_guide()` / `load_style_guide()` — `outputs/ip_memory/
+    <ip_name>/style_guide.md`への保存・読込（プレーンなUTF-8テキスト、
+    `file`コマンドで"Unicode text"と確認済み）。
+  - `save_prompt_rules()` / `load_prompt_rules()` — `outputs/ip_memory/
+    <ip_name>/prompt_rules.json`への保存・読込。保存時に
+    always/prefer/avoid/neverの4キーを必ず埋める（入力に無いキーは
+    空配列で補完）ため、保存後のJSONは常にこの4キーを持つ。
+  - **`ip_memory.json`本体には一切書き込まない**：`ip_bible_service.py`と
+    同じ設計方針で、Style Guide/Prompt Rulesは`ip_bible.md`と同じフォルダに
+    別ファイルとして保存する（`ip_memory.json`の`style_guide`プレースホルダ
+    キーはQuest104から変わらず空`{}`のまま）。生成・保存の前後で
+    `ip_memory.json`のSHA-256ハッシュが完全一致することを確認済み
+    （CEO確認事項、後述）。
+  - Image Generation・Asset Generator・Quality Control Engineのいずれにも
+    触れない（読み込みも書き込みもしない、完全に独立したService）。
+- `dashboard_web/app.py`：
+  - `POST /api/ip-memory/style/generate` — Style Guide・Prompt Rulesの
+    提案を生成（保存しない）
+  - `POST /api/ip-memory/style/save` — 生成済みMarkdown・JSONを両方保存
+  - `GET /api/ip-memory/<ip_name>/style` — 保存済みStyle Guide・Prompt
+    Rulesを取得（Preview用）
+- `dashboard_web/templates/index.html`：IP Memoryタブ、IP Bibleカードの
+  下に「🎨 Creative Style」カードを追加。`🎨 Generate Style Guide`
+  （AI提案生成）→ Style Guide（Markdown）とPrompt Rules（JSON）を
+  `<pre>`でそれぞれプレビュー → `👀 Preview`（未生成なら保存済みファイルを
+  取得表示、生成済みなら表示トグル）→ `💾 Save`で両ファイルを保存、という
+  一連の操作を追加。Coming Soon文言から「Style Guide」を除外し、Character
+  Bible/World Bible/Prompt History/Review History/Evolution Historyのみ
+  残した。
+- `docs/organization.md` / `docs/ai_employee_handbook.md`：IP Team
+  （Vega/Luna/Sol/Astra、Quest105で新設）の担当領域にCreative Style
+  Engineを追加（ドキュメント上の役割分担のみ、実際のAgent分離は将来
+  Quest）：Vega＝統括、Luna＝Expression Rules、Sol＝Style Guide統括
+  （Color/Line/Shape/Composition/Typography）、Astra＝Negative Rules・
+  Prompt Rulesのavoid/never。
+- `tests/test_quest107_creative_style.py`：新規（17件）。テンプレート
+  フォールバック生成（7見出しすべて含む・DNA値がそのまま反映される）、
+  Prompt Rulesの4キー固定・DNA値の機械的分類、IP未存在時のエラー、空DNA
+  でも生成できること、save/load往復、`ip_memory.json`が変更されないこと、
+  Flask API層の入力バリデーション（空名・存在しないIP・不正な
+  markdown/rules）を検証。
+
+## 確認済み事項（CEO確認済み）
+1. `style_guide.md`はプレーンなMarkdownテキストファイル（`file`コマンドで
+   "Unicode text, UTF-8 text"、HTML等でラップしない）。
+2. `prompt_rules.json`は`save_prompt_rules()`が常にalways/prefer/avoid/
+   neverの4キーを埋めるため、保存後のJSONには必ずこの4キーが存在する
+   （入力で一部キーが欠けていても空配列で補完されることをテストで確認）。
+3. `style_guide.md`・`prompt_rules.json`保存の前後で`ip_memory.json`の
+   SHA-256ハッシュが完全一致することを実際に確認済み（コード上も
+   `creative_style_service.py`内に`save_ip`/`update_dna`の呼び出しは無い）。
+4. AI失敗時（`OPENROUTER_API_KEY`未設定）も`generate_style_guide()`/
+   `generate_prompt_rules()`いずれも`ok=True, source="template"`で
+   テンプレート生成結果を返すことを確認済み（例外を投げない）。
+
+## 動作確認結果
+- Dashboard起動・IP Memoryタブ表示：OK（既存タブに回帰なし）
+- 実ブラウザ操作でIP作成→DNA生成・保存→IP Bible生成・保存→
+  「Generate Style Guide」（実際にOpenRouter APIを2回呼び出し）→
+  Style Guide・Prompt Rulesの両方をプレビュー→「Save」→
+  `style_guide.md`・`prompt_rules.json`が`ip_bible.md`と同じフォルダに
+  正しく保存され、`ip_memory.json`は変更されないことを確認
+- Generated Assets・References・Projectsタブ等：回帰なし
+- `tests/`配下83件（Quest102の4件＋Quest103の9件＋Quest104の16件＋
+  Quest105の11件＋Quest106の26件＋Quest107の17件）すべてpass
+
+## 次のQuest候補
+- Prompt Builder（既存`services/prompt_builder_service.py`）とprompt_rules.json
+  の接続（画像生成プロンプトへ実際に反映する導線）
+- Character Bible個別生成・World Bible個別生成
+- Luna / Sol / Astra、Altair / Terraの実際のAgent分離
+- 画像生成AI導入
+
+## 今後のロードマップ
+- Prompt Builder × Creative Style連携
+- Character Bible / World Bible個別実装
+- IP Team・Quality Teamの実Agent化
+- 画像生成AI導入
