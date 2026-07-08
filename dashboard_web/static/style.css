@@ -1720,3 +1720,18 @@ body {
 }
 .reference-edit-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .reference-edit-status { font-size: 0.78rem; color: var(--muted); }
+
+/* ─── Quest105：📖 IP Bible Generator（Preview） ─── */
+.ip-bible-preview {
+  margin-top: 10px;
+  padding: 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 480px;
+  overflow-y: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}

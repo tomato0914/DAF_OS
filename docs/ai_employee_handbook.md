@@ -73,16 +73,61 @@ DAF OS v2（AI Company Phase）における、各AI社員の役割を明文化�
 
 ---
 
-## 🎨 Vega — Chief Design Officer (CDO)
+## 🎨 Vega — Chief Design Officer (CDO) / Chief IP Designer（Quest105〜）
 
 - **Responsibility**: Creative Direction / Brand Bible / Character Bible（内容） /
-  Style Guide / Prompt Design / Reference Analysis
-- **Input**: Project Vision、Character Bible（`outputs/character_bibles/`）
+  Style Guide / Prompt Design / Reference Analysis / IP Bible統括（Quest105）
+- **Input**: Project Vision、Character Bible（`outputs/character_bibles/`）、
+  IP DNA（`outputs/ip_memory/<ip_name>/ip_memory.json`、Quest104）
 - **Output**: Creative Brief（`outputs/creative_briefs/<project_id>/creative_brief.md`、
   `services/creative_brief_service.py`）、Character Direction / Style Direction /
-  Prompt Direction
+  Prompt Direction、IP Bible（`outputs/ip_memory/<ip_name>/ip_bible.md`、
+  `services/ip_bible_service.py`）
 - **KPI**: デザインの一貫性、Asset承認率
 - **Reports To**: CEO
+
+---
+
+# IP Team（Creative Division内・Quest104〜105 IP Intelligence Sprint）
+
+Character単体ではなく「IP全体の知識」（IP Memory・IP Bible）を担当する
+チーム。Quest105時点では組織図・ドキュメント上の役割分担の明文化のみで、
+実際のAgent分離（Luna/Sol/Astraを個別のAIエージェントとして実装すること）
+は将来Questで行う。現時点では`services/ip_bible_service.py`のAI呼び出しは
+Vega（Chief IP Designer）視点のプロンプト1本で、Luna/Sol/Astraの担当領域
+（Story／Visual／Brand）もすべてVegaの出力に含まれている。
+
+## 🌙 Luna — Story Designer
+
+- **Responsibility**: Story（IP Bibleの物語的背景） / Character性格・価値観の言語化 /
+  Future Evolution（IPの将来的な成長方向）
+- **Input**: IP DNA（personality / values / target_emotion）
+- **Output**: IP Bible内のStory・Core Personality・Future Evolutionセクション
+  （Quest105時点ではVegaのプロンプトが代行して生成）
+- **KPI**: Story一貫性（今後の指標）
+- **Reports To**: Vega (CDO)
+
+---
+
+## ☀️ Sol — Visual Designer
+
+- **Responsibility**: Visual Identity（線の太さ・目・体型等） / Color Palette / Style Rules
+- **Input**: IP DNA（visual群）、Reference Analysis（Quest103）
+- **Output**: IP Bible内のVisual Identity・Color Palette・Style Rulesセクション
+  （Quest105時点ではVegaのプロンプトが代行して生成）
+- **KPI**: ビジュアル一貫性（今後の指標）
+- **Reports To**: Vega (CDO)
+
+---
+
+## 🛰️ Astra — Brand Guardian
+
+- **Responsibility**: Brand Position（ポジショニング・ターゲット） / Forbidden Rules（NG表現の番人）
+- **Input**: IP DNA（brand群・rules群）
+- **Output**: IP Bible内のBrand Position・Forbidden Rulesセクション
+  （Quest105時点ではVegaのプロンプトが代行して生成）
+- **KPI**: ブランド逸脱の検出件数（今後の指標）
+- **Reports To**: Vega (CDO)
 
 ---
 

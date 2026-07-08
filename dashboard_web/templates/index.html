@@ -1970,6 +1970,7 @@ const _DNA_GROUP_LABELS = {
 };
 
 let _selectedIpName = null;
+let _currentIpBibleMarkdown = null;
 
 function renderIpList(ips) {
   const list = ips || [];
@@ -2092,17 +2093,31 @@ function renderIpDnaPanel(ip) {
       <span class="reference-edit-status" id="ipDnaSaveStatus"></span>
     </div>
 
+    <div class="card full" style="margin-top:14px">
+      <div class="card-title">📖 IP Bible</div>
+      <div class="reference-edit-actions">
+        <button class="btn" id="ipBibleGenBtn" onclick="generateIpBible()">📖 Generate IP Bible</button>
+        <button class="btn" id="ipBiblePreviewBtn" onclick="previewIpBible()">👀 Preview</button>
+        <button class="btn btn-approve" id="ipBibleSaveBtn" onclick="saveIpBible()" disabled>💾 Save</button>
+      </div>
+      <span class="reference-edit-status" id="ipBibleStatus"></span>
+      <pre class="ip-bible-preview" id="ipBiblePreview" style="display:none"></pre>
+    </div>
+
     <details class="card full log-section" style="margin-top:14px">
       <summary><span class="card-title">🚧 Character Bible / World Bible / Style Guide / History（Coming Soon）</span></summary>
       <div class="log-section-body">
         <div class="ceo-brief-empty">
           Character Bible・World Bible・Style Guide・Prompt History・Review History・
           Evolution Historyは今後のQuestで実装予定です（IP Memoryの構造としては
-          ip_memory.json内に既に領域を確保済み）。
+          ip_memory.json内に既に領域を確保済み）。IP Bibleの個別生成は上のセクションで
+          既に利用できます。
         </div>
       </div>
     </details>
   `;
+  _currentIpBibleMarkdown = null;
+  document.getElementById('ipBibleSaveBtn').disabled = true;
 }
 
 function selectIp(ipName) {
@@ -2196,6 +2211,92 @@ function saveDnaForSelectedIp() {
         fetchIps();
       } else {
         statusEl.textContent = '⚠️ ' + (data.error || '保存に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; });
+}
+
+function _showIpBiblePreview(markdown) {
+  const pre = document.getElementById('ipBiblePreview');
+  pre.textContent = markdown || '';
+  pre.style.display = '';
+}
+
+function generateIpBible() {
+  if (!_selectedIpName) return;
+  const btn = document.getElementById('ipBibleGenBtn');
+  const statusEl = document.getElementById('ipBibleStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中...';
+  statusEl.textContent = '';
+
+  fetch('/api/ip-memory/bible/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: _selectedIpName }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok && data.markdown) {
+        _currentIpBibleMarkdown = data.markdown;
+        _showIpBiblePreview(data.markdown);
+        document.getElementById('ipBibleSaveBtn').disabled = false;
+        const sourceLabel = data.source === 'ai' ? 'AI生成' : 'テンプレート生成';
+        statusEl.textContent = `✅ IP Bibleを生成しました（${sourceLabel}）。内容を確認してSaveしてください。`;
+        if (data.error) statusEl.textContent += ` ／ ${data.error}`;
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || 'IP Bibleの生成に失敗しました');
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '📖 Generate IP Bible';
+    });
+}
+
+function previewIpBible() {
+  if (!_selectedIpName) return;
+  const statusEl = document.getElementById('ipBibleStatus');
+
+  if (_currentIpBibleMarkdown) {
+    const pre = document.getElementById('ipBiblePreview');
+    pre.style.display = pre.style.display === 'none' ? '' : 'none';
+    return;
+  }
+
+  statusEl.textContent = '⏳ 保存済みIP Bibleを確認中...';
+  fetch(`/api/ip-memory/${encodeURIComponent(_selectedIpName)}/bible`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.exists) {
+        _currentIpBibleMarkdown = data.markdown;
+        _showIpBiblePreview(data.markdown);
+        document.getElementById('ipBibleSaveBtn').disabled = false;
+        statusEl.textContent = '✅ 保存済みIP Bibleを表示しています。';
+      } else {
+        statusEl.textContent = 'まだIP Bibleは生成されていません。「Generate IP Bible」から作成してください。';
+      }
+    })
+    .catch(e => { statusEl.textContent = 'エラー: ' + e; });
+}
+
+function saveIpBible() {
+  if (!_selectedIpName || !_currentIpBibleMarkdown) return;
+  const statusEl = document.getElementById('ipBibleStatus');
+  statusEl.textContent = '⏳ 保存中...';
+
+  fetch('/api/ip-memory/bible/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ip_name: _selectedIpName, markdown: _currentIpBibleMarkdown }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        statusEl.textContent = '✅ IP Bibleを保存しました（ip_bible.md）';
+      } else {
+        statusEl.textContent = '⚠️ ' + (data.error || 'IP Bibleの保存に失敗しました');
       }
     })
     .catch(e => { statusEl.textContent = 'エラー: ' + e; });

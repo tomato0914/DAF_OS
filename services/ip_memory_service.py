@@ -105,6 +105,16 @@ def _ip_dir(ip_name: str, outputs_dir: Path | None = None) -> Path | None:
     return _library_root(outputs_dir) / safe
 
 
+def ip_dir_path(ip_name: str, outputs_dir: Path | None = None) -> Path | None:
+    """
+    Quest105：IPフォルダ（outputs/ip_memory/<safe_ip_name>/）のPathを返す。
+    services/ip_bible_service.py がip_bible.mdの保存先を組み立てる際、
+    IP名のサニタイズ（パストラバーサル対策）ロジックを二重実装しないよう
+    公開する。IP名が空・不正な場合はNoneを返す。
+    """
+    return _ip_dir(ip_name, outputs_dir)
+
+
 def create_ip(ip_name: str, outputs_dir: Path | None = None) -> dict:
     """
     新規IPの空箱（DNA＝全フィールド空文字/空配列、他セクションは空の

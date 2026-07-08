@@ -954,6 +954,67 @@ def api_ip_memory_dna_generate():
 
 
 # ──────────────────────────────────────────
+# IP Bible Generator（Quest105）
+# IP Memory（Quest104のDNA）からIP全体の設計書（Markdown）を生成する。
+# Character Bible / World Bible個別生成はまだ実装しない（将来Quest）。
+# ──────────────────────────────────────────
+
+@app.route("/api/ip-memory/bible/generate", methods=["POST"])
+def api_ip_memory_bible_generate():
+    """
+    指定IPのDNAからIP Bible（Markdown）の"提案"を生成する。
+    ip_bible.mdへの保存はしない（Dashboard上でPreviewを確認した上で
+    /api/ip-memory/bible/save を呼ぶ）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+
+        from services.ip_bible_service import generate_ip_bible
+        result = generate_ip_bible(ip_name, outputs_dir=OUTPUTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/bible/save", methods=["POST"])
+def api_ip_memory_bible_save():
+    """生成済みIP Bible（Markdown）をip_bible.mdへ保存する。"""
+    try:
+        data = request.get_json(force=True) or {}
+        ip_name = str(data.get("ip_name", "")).strip()[:100]
+        markdown = data.get("markdown")
+        if not ip_name:
+            return jsonify({"ok": False, "error": "IP名を入力してください"}), 400
+        if not isinstance(markdown, str) or not markdown.strip():
+            return jsonify({"ok": False, "error": "保存するMarkdownがありません"}), 400
+
+        from services.ip_bible_service import save_ip_bible
+        result = save_ip_bible(ip_name, markdown, outputs_dir=OUTPUTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ip-memory/<ip_name>/bible")
+def api_ip_memory_bible_get(ip_name):
+    """保存済みIP Bible（ip_bible.md）を返す（Previewボタンから呼ばれる）。"""
+    safe_name = _safe_ip_name_param(ip_name)
+    if not safe_name:
+        return jsonify({"exists": False, "error": "無効なIP名です"}), 400
+    try:
+        from services.ip_bible_service import load_ip_bible
+        markdown = load_ip_bible(safe_name, outputs_dir=OUTPUTS_DIR)
+        if markdown is None:
+            return jsonify({"exists": False, "ip_name": safe_name})
+        return jsonify({"exists": True, "ip_name": safe_name, "markdown": markdown})
+    except Exception as e:
+        return jsonify({"exists": False, "ip_name": safe_name, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # LINEスタンプ生成結果（Quest94 v2で追加、Quest97でProject別対応）
 # フォルダを開かなくてもDashboard上でProject別に40枚のスタンプ・main/tab・
 # zip・metadataを確認できるようにするためのAPI。
