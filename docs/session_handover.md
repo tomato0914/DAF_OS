@@ -2339,3 +2339,113 @@ IP DNA → IP Bible（本Quest）→ Prompt Builder（将来）→ Asset Generat
 - IP Team（Luna/Sol/Astra）の実Agent化
 - Prompt Builder連携
 - 画像生成AI導入
+
+---
+
+# 最新状況（2026-07-08・Quest106：Quality Control Engine）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence**
+
+## 完了Quest
+Quest106まで完了。
+
+## Quest106内容
+DAF OSは「Lean AI First」（Python → Rule Engine → Template → AI → CEOの
+優先順位で、まず一番安価で決定的な層から実装する）を採用している。
+Quest106でその先頭のPython層として、AI Review（Vision API・LLM判定等）
+ではなくPythonの決定的なルールだけで生成物（Digital Asset）の品質を
+機械的にチェックするQuality Control Engineを追加した。OpenRouter等の
+外部AI APIは一切呼ばない。
+
+- `services/quality_control_service.py`：新規。
+  - `validate_image(image_path)` — PNG形式・背景透過（アルファ値の実際の
+    透明ピクセル有無まで確認）・寸法（1〜4096px）・解像度（DPI、無くても
+    WARNING止まり）・縦横比・ファイルサイズ（1MB/5MBを閾値にPASS/WARNING/
+    FAIL）をチェック。画像未存在・破損でも例外を投げず、該当項目をFAILで
+    返す。
+  - `validate_metadata(metadata_path)` — メタデータのJSON存在・必須キー
+    （version/timestamp相当、`ip_memory.json`のように`metadata`キー配下に
+    ネストされていても検出）をチェック。既存パイプライン（LINEスタンプ等）
+    が使うMarkdown形式`metadata.md`にも後方互換で対応し、その場合は
+    「存在するがJSONではない」としてWARNING（必須キー検証はできないため）。
+  - `validate_ip(ip_name)` — IP Memory（Quest104 `ip_memory.json`）・
+    IP Bible（Quest105 `ip_bible.md`）の存在をread-onlyで確認。ip_name未指定
+    ならWARNING（現状のline_stickerパイプラインはまだIPと未連携のため、
+    単独では不合格にしない）。
+  - `validate_reference(project_id)` — 登録済みReference
+    （`outputs/reference_library/`、Quest101〜102）の有無をread-onlyで確認。
+  - `validate_asset(asset_dir)` — Assetフォルダ内の代表画像（main.png →
+    tab.png → 最初のpng）・メタデータ（metadata.json → metadata.md）を
+    自動検出してvalidate_image()/validate_metadata()を実行。
+  - `generate_quality_report(asset_dir, ip_name=None, project_id=None)` —
+    上記すべてを統合し、各チェックに重み（合計100）を割り当てて加重平均
+    スコアを算出、`{"passed", "score", "checks"}`を返す。PASS=満点／
+    WARNING=半分／FAIL=0点。`passed`はスコア≧70かつ"PNG"チェックが
+    FAILしていないことで判定（画像が開けない場合のみ無条件不合格。
+    Metadata/IP/Referenceは現時点では参考情報で、単独では不合格にしない
+    設計。実際にIP Memory・Reference Libraryのファイルハッシュが実行前後で
+    完全一致することをテストで確認済み＝read-onlyでの参照のみ）。
+- `dashboard_web/app.py`：`POST /api/quality/check` を追加
+  （`{"asset_type": "line_sticker", "project_id": ..., "ip_name": (任意),
+  "reference_project_id": (任意)}` → Quality Reportを返す。現状
+  asset_type=line_stickerのみ対応）。
+- `dashboard_web/templates/index.html`：専用の「Quality」タブは作らず、
+  Generated Assetsタブの「🐶 LINEスタンプ Project別成果物」各カードに
+  「🧪 Run Quality Check」ボタンを追加。クリックで即座にPASS/FAIL・
+  スコア・チェック項目ごとのPASS/WARNING/FAILテーブルを表示する。
+- `docs/organization.md` / `docs/ai_employee_handbook.md`：Operations
+  Division配下にQuality Teamを新設（ドキュメント上の役割分担のみ、実際の
+  Agent分離は将来Quest）：
+  - 🌠 Altair — Quality Lead（Quality Control Engine全体の統括、
+    Reports To: Orion）
+  - 🌍 Terra — Validation Engineer（画像・メタデータ・IP/Reference連携の
+    実チェック、Reports To: Altair）
+  当初案では🌠 Lyra（Quality Lead）・🛰️ Astra（Brand Guardian、Quest105）
+  としていたが、既存の✍️ Lyra（Content Creator）・🛰️ Pulsar（Automation
+  Engineer）と名前・絵文字が重複し将来の混乱要因になるとCEOから指摘があり、
+  commit前にQuality Leadを🌠 Altairへ改名、Astraの絵文字を⭐へ変更した
+  （Astra自体の名前・役割はQuest105のまま維持）。
+- `tests/test_quest106_quality_control.py`：新規（26件）。PNG判定（正常・
+  透明ピクセル無し・アルファチャンネル無し・拡張子違反・ファイル未存在）、
+  JSON判定（正常・必須キー欠落・ip_memory.json形式のネスト検出・不正JSON・
+  レガシーMarkdown・未存在）、IP/Reference判定、Quality Report全体の
+  PASS/FAIL・IP Memory/Reference Libraryが変更されないことの確認、Flask
+  API層の入力バリデーション（不正asset_type・不正project_id・404）を検証。
+
+## 確認済み事項
+1. AI・OpenRouterは一切呼ばない（`services/quality_control_service.py`に
+   litellm・API呼び出しの類は無く、Pythonの決定的なルール＋Pillowの画像
+   検査のみ）。
+2. IP Memory（`ip_memory.json`）・Reference Library
+   （`outputs/reference_library/`）へは一切書き込まない（read-onlyでの
+   参照のみ。テストでファイルハッシュの完全一致を確認済み）。
+3. 実データ（`outputs/generated_assets/line_sticker/`の実LINEスタンプ）で
+   動作確認：PNG/Transparency/Size/Aspect Ratio/File SizeはPASS、
+   Resolution（DPI未設定）・Metadata（既存metadata.mdはMarkdownのため）・
+   IP Memory/IP Bible/Reference（未連携のため）はWARNING、総合スコア75点で
+   passed=trueという、既存v1パイプラインの実態に即した妥当な結果が出た。
+
+## 動作確認結果
+- Dashboard起動・Generated Assetsタブ表示：OK（既存タブに回帰なし）
+- 実ブラウザ操作で「🧪 Run Quality Check」ボタン→Quality Reportが
+  PASS/WARNING/FAILのテーブルとスコアで正しく表示されることを確認
+- IP Memory・References・Projectsタブ等：回帰なし
+- `tests/`配下66件（Quest102の4件＋Quest103の9件＋Quest104の16件＋
+  Quest105の11件＋Quest106の26件）すべてpass
+
+## 次のQuest候補
+- Quality Control EngineのRule Engine層強化（アセットタイプ別の閾値、
+  LINEスタンプ規格準拠チェック等）
+- Quality Reportの永続化（`outputs/quality_reports/`等への保存、履歴比較）
+- Character Bible個別生成・World Bible / Style Guide個別生成
+- Luna / Sol / Astra、Altair / Terraの実際のAgent分離
+- 画像生成AI導入
+
+## 今後のロードマップ
+- Quality Control EngineのRule層強化・レポート永続化
+- Character Bible / World Bible / Style Guide個別実装
+- IP Team・Quality Teamの実Agent化
+- 画像生成AI導入
