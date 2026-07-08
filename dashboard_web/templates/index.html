@@ -1164,6 +1164,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
               <option value="3">3枚</option>
             </select>
             <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
+            <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
             ${p.status !== 'archived'
               ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
               : ''}
@@ -1175,6 +1176,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
   }
   html += '<div id="promptBuilderResultContent"></div>';
   html += '<div id="imageGenerationResultContent"></div>';
+  html += '<div id="aiReviewResultContent"></div>';
 
   document.getElementById('projectListContent').innerHTML = html;
 }
@@ -2891,6 +2893,87 @@ function generateProjectImage(projectId, btnEl) {
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑤ 画像生成'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest110：⑥ AI Review Engine（Python Quality Checkを優先し、AIレビューは
+// 「⑥ AIレビュー」ボタンからの手動依頼時のみ実行。AI未設定・失敗時は
+// fallback_rule_reviewへ自動的に切り替わる）
+// ────────────────────────────────
+
+const REVIEW_ITEM_LABELS = {
+  character_consistency: 'Character Consistency',
+  style_consistency: 'Style Consistency',
+  line_sticker_usability: 'Sticker Usability',
+  text_readability: 'Text Readability',
+  emotional_clarity: 'Emotional Clarity',
+  commercial_quality: 'Commercial Quality',
+};
+
+function renderAiReviewResult(projectId, data) {
+  const container = document.getElementById('aiReviewResultContent');
+  if (!container) return;
+
+  if (!data.ok) {
+    container.innerHTML = `<div class="card full error-box">⚠️ AIレビューに失敗しました: ${esc(data.error || '')}</div>`;
+    return;
+  }
+
+  const report = data.report;
+  const modeLabel = report.review_mode === 'ai' ? '🤖 AIレビュー' : '📏 Rule Engine（簡易レビュー）';
+  const anyNeedsFix = (report.items || []).some(i => i.needs_fix);
+
+  const itemRows = (report.items || []).map(i => `
+    <tr>
+      <td>${esc(REVIEW_ITEM_LABELS[i.name] || i.name)}</td>
+      <td>${'⭐'.repeat(Number(i.score || 0))} (${esc(String(i.score))}/5)</td>
+      <td>${i.needs_fix ? '⚠️ 要確認' : '✅ OK'}</td>
+      <td>${esc(i.comment || '')}</td>
+    </tr>
+  `).join('');
+
+  const imageComments = (report.images || []).map(img => `
+    <div class="creative-direction-text">📷 <strong>${esc(img.filename)}</strong>：${esc(img.comment || '')}</div>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">⑥ AIレビュー結果（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text">
+        方式: ${modeLabel}　総合スコア: ${'⭐'.repeat(Number(report.overall_score || 0))} (${esc(String(report.overall_score))}/5)
+        ${anyNeedsFix ? '⚠️ 要確認項目あり' : '✅ 要確認項目なし'}
+      </div>
+      <div class="creative-direction-text" style="margin-top:6px">${esc(report.summary || '')}</div>
+
+      <div class="table-scroll" style="margin-top:10px">
+        <table class="simple-table">
+          <thead><tr><th>項目</th><th>Score</th><th>Needs Fix</th><th>Comment</th></tr></thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:10px">${imageComments}</div>
+    </div>
+  `;
+}
+
+function reviewProjectImages(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ レビュー中...'; }
+
+  fetch('/api/projects/review-images', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId }),
+  })
+    .then(r => r.json())
+    .then(data => renderAiReviewResult(projectId, data))
+    .catch(e => {
+      const container = document.getElementById('aiReviewResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑥ AIレビュー'; }
     });
 }
 

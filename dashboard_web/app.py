@@ -702,6 +702,56 @@ def api_generated_assets_image(filename):
 
 
 # ──────────────────────────────────────────
+# AI Review Engine（Quest110）
+# Python Quality Check（Quest106）を優先し、AIレビューは必要な時だけ実行する
+# （Lean AI First：Python → Rule Engine → AI Review → CEO承認）。
+# Image Generation Pipeline（Quest109）・Prompt Builder v2（Quest108）は
+# 読み取り専用でのみ参照し、変更は加えない。
+# ──────────────────────────────────────────
+
+@app.route("/api/projects/review-images", methods=["POST"])
+def api_projects_review_images():
+    """
+    指定Projectの生成済み画像をレビューする（Projectsタブの
+    「⑥ AIレビュー」ボタンから呼ばれる、manual_request=True固定）。
+    ip_nameは任意（未指定でもPython Quality Check・簡易レビューは動作する）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        ip_name = str(data.get("ip_name", "")).strip() or None
+        asset_type = str(data.get("asset_type", "")).strip() or "line_sticker"
+
+        from services.ai_review_engine import review_images
+        result = review_images(
+            project_id, ip_name=ip_name, manual_request=True,
+            asset_type=asset_type, outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/review-report")
+def api_projects_review_report(project_id):
+    """指定Projectの保存済みreview_report.jsonを返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"exists": False, "error": "無効なProject IDです"}), 400
+    try:
+        from services.ai_review_engine import load_review_report
+        report = load_review_report(safe_id, outputs_dir=OUTPUTS_DIR)
+        if report is None:
+            return jsonify({"exists": False, "project_id": safe_id})
+        return jsonify({"exists": True, "project_id": safe_id, "report": report})
+    except Exception as e:
+        return jsonify({"exists": False, "project_id": safe_id, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても
