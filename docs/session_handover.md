@@ -2565,3 +2565,84 @@ Creative Style Engineを追加した。
 - Character Bible / World Bible個別実装
 - IP Team・Quality Teamの実Agent化
 - 画像生成AI導入
+
+---
+
+# 最新状況（2026-07-08・Quest108：Prompt Builder v2）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：IP Intelligence → Production Phaseの開始**
+
+## 完了Quest
+Quest108まで完了。
+
+## Quest108内容
+`Reference → Reference Analysis（Quest103）→ IP Memory（Quest104）→
+IP DNA → IP Bible（Quest105）→ Creative Style（Quest107）`で積み上げてきた
+IPの知識を、画像生成AIへ渡すプロンプト文字列へ変換する「Prompt Builder
+v2」を実装した。Production Phaseの開始となるQuest。
+
+- `services/prompt_builder_v2.py`：新規。既存のPrompt Builder v1
+  （`services/prompt_builder_service.py`、Quest98、Character Bible＝
+  `outputs/character_bibles/`ベース）とは完全に独立した別モジュール
+  （v1・Asset Generator・Image Generation Serviceには一切手を加えていない）。
+  - `build_character_prompt()` / `build_style_prompt()` /
+    `build_expression_prompt()` / `build_output_prompt()` — IP DNA・
+    IP Bible・Style Guide・Reference Summary・Asset Typeからそれぞれの
+    プロンプト断片を組み立てる（優先順位：IP DNA/Style Guide → IP Bible →
+    Reference Summary → 汎用フォールバック、いずれも欠けていても例外を
+    投げず動作継続する）
+  - `merge_prompt()` — 4断片とCreative Style（Quest107）のPrompt Rules
+    （always/prefer/avoid/never）を1つのプロンプト文字列に統合する
+  - `build_prompt(project_id, ip_name=None, save=True)` — 上記すべてを
+    統合するエントリポイント。ProjectはまだIP名を保存する仕組みが無い
+    ため、ip_nameは任意引数（未指定でもReference Summary・Project
+    Visionだけでプロンプトを組み立てる）
+  - `save_prompt()` / `list_prompts()` / `load_prompt()` —
+    `outputs/prompts/<project_id>/prompt_NNN.txt`への連番保存・一覧・読込
+    （既存ファイルは上書きしない）
+  - 画像生成AI（OpenAI / Google / Stability AI等）へは一切依存しない
+    （Lean AI First、Prompt Builder自体もAIを呼ばない決定的な文字列組み立て）
+- `dashboard_web/app.py`：
+  - `POST /api/projects/build-prompt` — プロンプトを生成・保存（1回の
+    実行で生成→保存→表示まで行うDashboard側のUXに合わせsave=Trueで呼ぶ）
+  - `GET /api/projects/<project_id>/prompts` — 保存済みプロンプト一覧
+- `dashboard_web/templates/index.html`：Projectsタブの各Project行に
+  「④ プロンプト生成」ボタンを追加。クリックで生成・保存・内容表示までを
+  1回の実行で完了する。
+- `tests/test_quest108_prompt_builder.py`：新規（20件）。各サブビルダーの
+  IP有無での分岐、merge_prompt()のルール統合、build_prompt()の
+  IP有無両パターン・保存・Project未存在時のフォールバック、save/list/load
+  の連番保存、Flask API層の入力バリデーションを検証。
+
+## 動作確認結果
+- Dashboard起動・Projectsタブ表示：OK（既存機能に回帰なし）
+- 実ブラウザ操作で「④ プロンプト生成」を実行 → IP未紐づけのProjectでも
+  Reference Summaryを取り込んだ空でないプロンプトが生成され、
+  `outputs/prompts/<project_id>/prompt_001.txt`として保存、2回目実行で
+  `prompt_002.txt`が連番作成されることを確認
+- IP Memory・References等：回帰なし
+- `tests/`配下103件（Quest102の4件＋Quest103の9件＋Quest104の16件＋
+  Quest105の11件＋Quest106の26件＋Quest107の17件＋Quest108の20件）
+  すべてpass
+
+## commit / push
+- commit hash：`a3c0374`（`feat: add prompt builder v2`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- Prompt Builder v2で生成したプロンプトを実際に画像生成AIへ渡す導線
+  （OpenAI / Google / Stability AI等、Quest108では未接続）
+- ProjectとIP（ip_name）の紐付けを永続化する仕組み（現状は都度指定）
+- Character Bible個別生成・World Bible個別生成
+- Luna / Sol / Astra、Altair / Terraの実際のAgent分離
+
+## 今後のロードマップ
+- 画像生成AI導入（Prompt Builder v2の出力を実際に消費する）
+- Project × IP Memoryの紐付け永続化
+- Character Bible / World Bible個別実装
+- IP Team・Quality Teamの実Agent化
