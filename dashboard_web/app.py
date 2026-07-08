@@ -752,6 +752,77 @@ def api_projects_review_report(project_id):
 
 
 # ──────────────────────────────────────────
+# Export Engine（Quest111）
+# LINE Creators Market提出用パッケージ・ZIPを作成する（申請自体は行わない）。
+# LINE固有ロジックはservices/export_engine.pyのLineExportAdapterに閉じ込め、
+# 将来Discord/Telegram/WhatsApp等へも拡張できる設計にしている。
+# ──────────────────────────────────────────
+
+_EXPORTS_DIR = OUTPUTS_DIR / "exports"
+
+
+@app.route("/api/projects/export", methods=["POST"])
+def api_projects_export():
+    """
+    指定Projectの生成画像をExport（package作成・ZIP化・レポート保存）する
+    （Projectsタブの「⑦ Export」ボタンから呼ばれる）。
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        project_id = str(data.get("id", "")).strip()
+        if not re.match(r"^[\w\-]+$", project_id):
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        asset_type = str(data.get("asset_type", "")).strip() or None
+        platform = str(data.get("platform", "")).strip() or None
+
+        from services.export_engine import export_project, DEFAULT_ASSET_TYPE, DEFAULT_PLATFORM
+        result = export_project(
+            project_id, asset_type=asset_type or DEFAULT_ASSET_TYPE,
+            platform=platform or DEFAULT_PLATFORM, outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/export-report")
+def api_projects_export_report(project_id):
+    """指定Projectの保存済みexport_report.jsonを返す。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        return jsonify({"exists": False, "error": "無効なProject IDです"}), 400
+    try:
+        from services.export_engine import load_export_report
+        report = load_export_report(safe_id, outputs_dir=OUTPUTS_DIR)
+        if report is None:
+            return jsonify({"exists": False, "project_id": safe_id})
+        return jsonify({"exists": True, "project_id": safe_id, "report": report})
+    except Exception as e:
+        return jsonify({"exists": False, "project_id": safe_id, "error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/download-export")
+def api_projects_download_export(project_id):
+    """指定Projectの提出用ZIP（line_stickers.zip等）をダウンロードさせる。"""
+    safe_id = _safe_project_id(project_id)
+    if not safe_id:
+        abort(400)
+    try:
+        from services.export_engine import load_export_report
+        report = load_export_report(safe_id, outputs_dir=OUTPUTS_DIR)
+        zip_filename = (report or {}).get("zip_file")
+        if not zip_filename:
+            abort(404)
+        export_dir = _EXPORTS_DIR / safe_id
+        if not (export_dir / zip_filename).exists():
+            abort(404)
+        return send_from_directory(export_dir, zip_filename, as_attachment=True)
+    except Exception:
+        abort(404)
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても

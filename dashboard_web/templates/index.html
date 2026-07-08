@@ -1165,6 +1165,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
             </select>
             <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
             <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
+            <button class="btn btn-approve" onclick="exportProject('${esc(p.id)}', this)">⑦ Export</button>
             ${p.status !== 'archived'
               ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
               : ''}
@@ -1177,6 +1178,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
   html += '<div id="promptBuilderResultContent"></div>';
   html += '<div id="imageGenerationResultContent"></div>';
   html += '<div id="aiReviewResultContent"></div>';
+  html += '<div id="exportResultContent"></div>';
 
   document.getElementById('projectListContent').innerHTML = html;
 }
@@ -2974,6 +2976,58 @@ function reviewProjectImages(projectId, btnEl) {
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑥ AIレビュー'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest111：⑦ Export Engine（LINE Creators Market提出用package・ZIP作成。
+// 申請自体は行わない）
+// ────────────────────────────────
+
+function renderExportResult(projectId, data) {
+  const container = document.getElementById('exportResultContent');
+  if (!container) return;
+
+  const report = data.report;
+  if (!report) {
+    container.innerHTML = `<div class="card full error-box">⚠️ Exportに失敗しました: ${esc(data.error || '')}</div>`;
+    return;
+  }
+
+  const readyLabel = report.ready ? '✅ READY' : '❌ NOT READY';
+  const errorsHtml = (report.errors || []).map(e => `<div class="creative-direction-text">❌ ${esc(e)}</div>`).join('');
+  const warningsHtml = (report.warnings || []).map(w => `<div class="creative-direction-text">⚠️ ${esc(w)}</div>`).join('');
+  const downloadHtml = (data.ok && report.zip_file)
+    ? `<a class="btn btn-approve" href="/api/projects/${encodeURIComponent(projectId)}/download-export" download>⬇ ${esc(report.zip_file)} をダウンロード</a>`
+    : '';
+
+  container.innerHTML = `
+    <div class="card full">
+      <div class="card-title">⑦ Export結果（Project ${esc(projectId)}）</div>
+      <div class="creative-direction-text">${readyLabel}　Exported At: ${esc(report.exported_at || '-')}</div>
+      ${errorsHtml}
+      ${warningsHtml}
+      <div style="margin-top:10px">${downloadHtml}</div>
+    </div>
+  `;
+}
+
+function exportProject(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Export中...'; }
+
+  fetch('/api/projects/export', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: projectId }),
+  })
+    .then(r => r.json())
+    .then(data => renderExportResult(projectId, data))
+    .catch(e => {
+      const container = document.getElementById('exportResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ Export'; }
     });
 }
 
