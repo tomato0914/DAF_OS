@@ -3496,3 +3496,134 @@ CEO向け情報が混在していたダッシュボードタブから、CEO向�
 - Review Packageのスクリーンショット対応・自動抽出化
 - 複数Asset Type（wallpaper／icon等）の実Production対応
 - Project × IP Memoryの紐付け永続化
+
+---
+
+# 最新状況（2026-07-09・Quest118：AI Runtime Guard／Quest119：Production Reality Check）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：Production Phase**
+
+## 完了Quest
+Quest119まで完了。
+
+## 背景（Quest番号の整理について）
+当初「緊急Quest：AI Runtime Guard」として着手した内容と、その前に着手して
+いた「Production Reality Check」がどちらも暫定的にQuest118を名乗って
+しまっていたため、CEOの指示により以下のとおり正式に採番し直した。
+
+- **Quest118：AI Runtime Guard**（APIコスト防止）
+- **Quest119：Production Reality Check**
+
+## Quest118内容（AI Runtime Guard）
+Claude Codeでの実装・テスト・Dashboard確認中に、OpenRouter / OpenAI等の
+AI APIが意図せず呼び出されトークンを消費する事故を防ぐため、AI呼び出しを
+一元的に制御するGuardを追加した。Lean AI First（Python → Rule Engine →
+Template → AI → CEO）を徹底し、AIは「最後の専門家」として明示的にONに
+した時だけ使われるようにする。
+
+- `services/ai_runtime_guard.py`：新規。
+  - `is_ai_enabled()` — `DAF_RUNTIME_MODE=production` かつ
+    `DAF_AI_ENABLED=true` の場合のみTrue。それ以外（development・test・
+    未設定・不明な値を含む）は常にFalse（デフォルトAI OFF）。
+  - `get_runtime_mode()` / `require_ai_enabled(feature_name)` /
+    `get_ai_status()` を提供。
+- 既存AI呼び出し箇所（`services/reference_analysis_service.py`・
+  `services/ip_memory_service.py`・`services/ip_bible_service.py`・
+  `services/creative_style_service.py`（2箇所）・
+  `services/ai_review_engine.py`・`services/image_generation_pipeline.py`・
+  `services/memory_review_service.py`・`crews/meeting_crew.py`）の
+  AI呼び出し直前すべてにGuardを挿入。OFF時は既存のfallback経路
+  （fallback_rule_review／fallback_pillow／テンプレート／簡易集計）へ
+  安全に切り替わる。各Serviceの中核ロジックは変更していない。
+- `dashboard_web/app.py`：`GET /api/ai-runtime/status`を追加。
+- `dashboard_web/templates/index.html`：ダッシュボードタブ「🔧 詳細情報を
+  見る」内に「🛡️ AI Runtime Guard」状態カードを追加（AI Runtime：
+  ON/OFF・runtime_mode・理由を表示）。
+- `.env.example`：`DAF_AI_ENABLED`・`DAF_RUNTIME_MODE`の説明を追記。
+- `tests/test_ai_runtime_guard.py`：新規（14件）。環境変数未設定・
+  `DAF_AI_ENABLED=false`・test mode・development mode・
+  `production+DAF_AI_ENABLED=true`の各ケースを検証。さらにOPENROUTER_
+  API_KEY／OPENAI_API_KEYにダミー値を設定した状態でも
+  `litellm.completion`／`litellm.image_generation`が一度も呼ばれない
+  ことをモック（呼ばれたら`AssertionError`）で証明している。
+
+## Quest119内容（Production Reality Check）
+「動く」だけでなく「実際に商品制作できるか」をCEOが判断できるようにした。
+Pillow fallback画像（テスト用の簡易画像）が「制作完了」として販売用と
+誤認されないよう、画像生成方式を必ず可視化する。
+
+- `services/production_orchestrator.py`：
+  - `get_image_generation_capability()` — AI画像生成が実際に使える状態
+    かどうかを生成を行わずに判定する。当初はOPENAI_API_KEYの有無だけで
+    判定していたが、Quest118のAI Runtime Guardと統一し、
+    「`DAF_RUNTIME_MODE=production` かつ `DAF_AI_ENABLED=true` かつ
+    `OPENAI_API_KEY`設定済み」の3条件をすべて満たす場合のみ
+    `ai_configured=true`になるよう修正した。
+  - `run_production()`の戻り値・`production_report.json`に
+    `image_generation_mode`（"ai"|"fallback_pillow"|None）・
+    `commercial_ready`（bool）・`commercial_ready_reason`を追加。
+    Pillow fallback時は`commercial_ready=false`とし、`next_action`も
+    「AI画像生成API設定を確認してください」に変える（従来は
+    `status="success"`なら常に提出案内だった）。
+- `dashboard_web/app.py`：`GET /api/production/image-generation-status`を追加。
+- `dashboard_web/templates/index.html`：
+  - 制作結果パネルに「画像生成方式：🤖 AI画像生成／🖌️ Pillow fallback／
+    ❔ 不明」を必ず表示し、Pillow fallback時は「制作完了」ではなく
+    「テスト生成完了（販売用画像は未生成）」＋警告ボックスを表示。
+  - Developer Modeの「⑦ 提出データ作成」結果にも、Pillow fallback画像
+    からの提出データである旨の警告をベストエフォートで追加。
+  - Projectsタブ読み込み時にAI画像生成未設定バナーを表示（制作実行前に
+    気づけるようにする）。
+  - 「🔍 結果を見る」（制作を再実行せずに保存済みレポートを表示）・
+    「🎨 生成画像を見る」（生成物タブへ遷移し詳細を自動表示）を追加。
+- `services/dashboard_review_package_service.py`：Review Package要約に
+  AI画像生成API設定状態（設定済み/未設定・使用予定モデル・fallback理由）
+  を追記。
+- `tests/test_quest113_production_orchestrator.py`：`commercial_ready`
+  導入に伴う`test_next_action_on_success`の期待値を更新。
+- `tests/test_quest119_production_reality_check.py`：新規（14件、
+  旧`test_quest118_production_reality_check.py`から改称）。
+  AI Runtime Guard基準の3条件判定（APIキーのみでは不十分・test modeでは
+  不可・3条件すべて満たせば可）・commercial_readyフラグ・
+  production_reportへの記録・line_stickerフロー継続動作・APIの形状・
+  Dashboard警告文言の存在を検証。
+
+## 動作確認結果
+- `.venv/bin/python -m unittest discover -s tests -v` で248件すべてpass
+  （Quest102〜117の232件＋Quest118の14件＋Quest119の14件-2件[旧ファイル
+  からの差分]、テスト中にOpenRouter／OpenAI／LiteLLMへの実接続は一切
+  発生していない）
+- Dashboardで「🔧 詳細情報を見る」→「🛡️ AI Runtime Guard／🔴 AI
+  Runtime：OFF（development）」の表示を確認
+- `.env`に実際のOPENROUTER_API_KEYが存在する状態でも、`DAF_AI_ENABLED`・
+  `DAF_RUNTIME_MODE`が未設定のためGuardがOFFのままであり、実際に
+  「🚀 このProjectを制作する」を実行してもPillow fallbackで安全に完了する
+  ことを確認（実キー存在下でもGuardが機能する実地確認）
+
+## commit / push
+- commit hash：`51682a2`（`Quest118-119: Add AI Runtime Guard and Production Reality Check`）
+- push：成功、origin/mainと同期済み
+- Quest118・119は1つのcommitにまとめた。理由：`dashboard_web/app.py`・
+  `dashboard_web/templates/index.html`が両Quest分の変更を行単位で
+  混在して含んでおり（AI Runtime Guardの状態カードとProduction Reality
+  Checkの警告バナーを同じ編集セッションで作り込んだため）、
+  `git add -p`等によるハンク単位の分割commitはリスクが高いと判断した。
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- 「⑤ 最近完了した制作」の専用集計APIの整備（変更なし、継続）
+- `crews/launch_crew.py`・`crews/mofulog_crew.py`（main.py日次バッチ専用）
+  へのAI Runtime Guard適用（Quest118では明示的な7項目のみ対応、
+  Dashboard/テストから到達しないためスコープ外とした）
+- Review Packageへのスクリーンショット自動撮影の追加
+- wallpaper／icon等、line_sticker以外のAsset Typeの実際のProduction実装
+
+## 今後のロードマップ
+- AI Runtime Guardの適用範囲拡大（main.py日次バッチ系Crew）
+- CEO Homeの集計APIの専用整備（⑤最近完了した制作の高速化）
+- Review Packageのスクリーンショット対応・自動抽出化
+- 複数Asset Type（wallpaper／icon等）の実Production対応
