@@ -399,6 +399,13 @@ def generate_dna_from_reference(
             return {"ok": True, "dna": dna, "reference_count": len(images),
                      "error": None, "source": "fallback_aggregation"}
 
+        from services.ai_runtime_guard import require_ai_enabled
+        if not require_ai_enabled("IP DNA生成"):
+            dna = _fallback_dna_from_images(images)
+            return {"ok": True, "dna": dna, "reference_count": len(images),
+                     "error": "AI Runtime GuardによりAI呼び出しが無効化されているため簡易集計を使用",
+                     "source": "fallback_aggregation"}
+
         try:
             import litellm
 

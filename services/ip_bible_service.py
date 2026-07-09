@@ -213,6 +213,12 @@ def generate_ip_bible(ip_name: str, outputs_dir: Path | None = None) -> dict:
             markdown = _template_ip_bible(ip_name, dna)
             return {"ok": True, "markdown": markdown, "source": "template", "error": None}
 
+        from services.ai_runtime_guard import require_ai_enabled
+        if not require_ai_enabled("IP Bible生成"):
+            markdown = _template_ip_bible(ip_name, dna)
+            return {"ok": True, "markdown": markdown, "source": "template",
+                     "error": "AI Runtime GuardによりAI呼び出しが無効化されているためテンプレートを使用"}
+
         try:
             import litellm
 

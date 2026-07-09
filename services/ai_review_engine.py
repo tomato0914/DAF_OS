@@ -249,6 +249,10 @@ def _ai_review(image_paths: list[Path], context: dict) -> dict:
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
 
+    from services.ai_runtime_guard import require_ai_enabled
+    if not require_ai_enabled("AI Review Engine"):
+        raise RuntimeError("AI runtime guard: AI disabled")
+
     review_targets = image_paths[:_MAX_REVIEW_IMAGES]
     filenames_line = ", ".join(p.name for p in review_targets)
 

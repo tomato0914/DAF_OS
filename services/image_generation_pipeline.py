@@ -193,6 +193,9 @@ def generate_images(
             import os
             if not os.getenv("OPENAI_API_KEY"):
                 raise RuntimeError("OPENAI_API_KEY not set")
+            from services.ai_runtime_guard import require_ai_enabled
+            if not require_ai_enabled("Image Generation Pipeline"):
+                raise RuntimeError("AI runtime guard: AI disabled")
             for i in range(1, safe_count + 1):
                 images.append(_generate_via_ai(prompt_text, i))
         except Exception as e:

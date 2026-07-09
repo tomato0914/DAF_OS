@@ -50,6 +50,8 @@
 
 <!-- プロジェクトタブ（Quest93） -->
 <main class="container" id="tabProjectCenter" style="display:none">
+  <div id="imageGenerationStatusBanner"></div>
+
   <div class="card full">
     <div class="card-title">🆕 新規プロジェクト</div>
     <div class="project-form">
@@ -654,6 +656,7 @@ function _dashboardDetailsSectionHtml(data) {
     <details class="card full developer-mode" id="dashboardDetailsSection">
       <summary>🔧 詳細情報を見る（開発者・AI社員レポート）</summary>
       <div style="margin-top:14px">
+        <div id="aiRuntimeStatusContainer"></div>
         ${renderFactoryPanelCard()}
         <div id="latestArtifactContainer"></div>
         <div id="creativeDirectionContainer"></div>
@@ -712,6 +715,7 @@ function renderDashboard(data) {
   document.getElementById('tabDashboard').innerHTML = html;
   fetchCeoHome();
   fetchApprovalsSummary();
+  fetchAiRuntimeStatus();
   fetchLatestArtifact();
   fetchCreativeDirection();
   fetchReferenceLibrary();
@@ -1234,6 +1238,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
           <td>
             <div class="project-row-actions">
               <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 このProjectを制作する</button>
+              <button class="btn btn-ghost" onclick="viewProductionResult('${esc(p.id)}', this)">🔍 結果を見る</button>
               ${zipFile
                 ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ 提出データをダウンロード</a>`
                 : ''}
@@ -1275,7 +1280,31 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
   document.getElementById('projectListContent').innerHTML = html;
 }
 
+// Quest119（Production Reality Check）：CEOが「制作する」を押す前に、
+// 実際に販売用画像が作れる状態かどうかを知れるようにする。
+function fetchImageGenerationStatus() {
+  fetch('/api/production/image-generation-status')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('imageGenerationStatusBanner');
+      if (!el) return;
+      if (data.ai_configured) {
+        el.innerHTML = '';
+        return;
+      }
+      el.innerHTML = `
+        <div class="card full error-box">
+          ⚠️ AI画像生成API（${esc(data.model || '')}）が未設定です。今「制作する」を実行すると、
+          Pillowによるテスト用の簡易画像が生成されます（販売用画像ではありません）。<br>
+          ${esc(data.fallback_reason || '')}
+        </div>
+      `;
+    })
+    .catch(() => {});
+}
+
 function fetchProjects() {
+  fetchImageGenerationStatus();
   Promise.all([
     fetch('/api/projects').then(r => r.json()),
     fetch('/api/generated-assets').then(r => r.json()),
@@ -1670,6 +1699,43 @@ function fetchNotifications() {
 // /api/generated-assets 系エンドポイント（Quest93〜94で実装済み）をそのまま
 // 順番に呼び出すだけで完結させる（バックエンドの新規変更は不要）。
 // ────────────────────────────────
+
+// ────────────────────────────────
+// Quest118：🛡️ AI Runtime Guard（APIコスト防止）
+// 開発・テスト中にOpenRouter / OpenAI等のAI APIが意図せず呼ばれないよう、
+// 現在のAI ON/OFF状態をDashboardから確認できるようにする（読み取り専用）。
+// ────────────────────────────────
+
+function renderAiRuntimeStatusCard(data) {
+  const enabled = !!data.ai_enabled;
+  const statusLabel = enabled
+    ? `🟢 AI Runtime：ON（${esc(data.runtime_mode)}）`
+    : `🔴 AI Runtime：OFF（${esc(data.runtime_mode)}）`;
+  const detailLine = enabled
+    ? `${esc(data.provider || '')} API使用可能`
+    : 'API呼び出しは停止中です（Pillow fallback / ルールベース / テンプレートで動作します）';
+  return `
+    <div class="card full">
+      <div class="card-title">🛡️ AI Runtime Guard</div>
+      <div class="creative-direction-text"><strong>${statusLabel}</strong></div>
+      <div class="creative-direction-text">${esc(detailLine)}</div>
+      <div class="creative-direction-text" style="margin-top:6px">理由：${esc(data.reason || '-')}</div>
+    </div>
+  `;
+}
+
+function fetchAiRuntimeStatus() {
+  fetch('/api/ai-runtime/status')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('aiRuntimeStatusContainer');
+      if (el) el.innerHTML = renderAiRuntimeStatusCard(data);
+    })
+    .catch(() => {
+      const el = document.getElementById('aiRuntimeStatusContainer');
+      if (el) el.innerHTML = renderAiRuntimeStatusCard({ ai_enabled: false, runtime_mode: 'development', reason: '取得に失敗しました' });
+    });
+}
 
 const FACTORY_STEPS = [
   { key: 'project', label: 'Project作成' },
@@ -3164,6 +3230,13 @@ function renderExportResult(projectId, data) {
   const downloadHtml = (data.ok && report.zip_file)
     ? `<a class="btn btn-approve" href="/api/projects/${encodeURIComponent(projectId)}/download-export" download>⬇ ${esc(report.zip_file)} をダウンロード</a>`
     : '';
+  // Quest119：Exportした画像がPillow fallback（テスト用）の場合、CEOが
+  // 販売用ZIPと誤認しないよう警告を出す（可能な範囲でのベストエフォート）。
+  const fallbackWarning = (data.image_generation_mode === 'fallback_pillow') ? `
+    <div class="error-box" style="margin-top:10px">
+      ⚠️ この提出データはPillow fallback（テスト用の簡易画像）から作成されています。販売用画像ではありません。
+    </div>
+  ` : '';
 
   container.innerHTML = `
     <div class="card full">
@@ -3171,6 +3244,7 @@ function renderExportResult(projectId, data) {
       <div class="creative-direction-text">${readyLabel}　作成日時: ${esc(report.exported_at || '-')}</div>
       ${errorsHtml}
       ${warningsHtml}
+      ${fallbackWarning}
       <div style="margin-top:10px">${downloadHtml}</div>
     </div>
   `;
@@ -3179,13 +3253,18 @@ function renderExportResult(projectId, data) {
 function exportProject(projectId, btnEl) {
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 作成中...'; }
 
-  fetch('/api/projects/export', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ id: projectId }),
-  })
-    .then(r => r.json())
-    .then(data => renderExportResult(projectId, data))
+  Promise.all([
+    fetch('/api/projects/export', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ id: projectId }),
+    }).then(r => r.json()),
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/generated-images`).then(r => r.json()).catch(() => ({})),
+  ])
+    .then(([data, imagesInfo]) => {
+      data.image_generation_mode = (imagesInfo.metadata || {}).generation_mode || null;
+      renderExportResult(projectId, data);
+    })
     .catch(e => {
       const container = document.getElementById('exportResultContent');
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
@@ -3272,6 +3351,18 @@ const PRODUCTION_STEP_LABELS = {
   export: '⑦ Export',
 };
 
+// Quest119（Production Reality Check）：画像生成方式（AI画像生成／Pillow
+// fallback）をCEOに必ず見えるようにし、Pillow fallback画像を「制作完了」
+// （＝販売できる状態）と誤認させないための表示ラベル。
+const IMAGE_GENERATION_MODE_LABELS = {
+  ai: '🤖 AI画像生成',
+  fallback_pillow: '🖌️ Pillow fallback（テスト用の簡易画像）',
+};
+
+function _imageGenerationModeLabel(mode) {
+  return IMAGE_GENERATION_MODE_LABELS[mode] || '❔ 不明（エラー）';
+}
+
 function renderProductionRunResult(projectId, data) {
   const container = document.getElementById('productionRunResultContent');
   if (!container) return;
@@ -3303,20 +3394,39 @@ function renderProductionRunResult(projectId, data) {
   const downloadHtml = data.zip_filename
     ? `<a class="btn btn-approve" href="/api/projects/${encodeURIComponent(projectId)}/download-export" download>⬇ 提出データをダウンロード</a>`
     : '';
+  const viewImagesHtml = `<button class="btn btn-ghost" onclick="viewGeneratedImages('${esc(projectId)}')">🎨 生成画像を見る</button>`;
+
+  const commercialReady = !!data.commercial_ready;
+  const titleLine = commercialReady ? '制作完了' : 'テスト生成完了（販売用画像は未生成）';
+  const warningBox = commercialReady ? '' : `
+    <div class="error-box" style="margin-top:10px">
+      ⚠️ 現在はテスト用の簡易画像で生成されています。販売用画像ではありません。<br>
+      AI画像生成APIの設定を確認してください。
+    </div>
+  `;
 
   container.innerHTML = `
     <div class="card full">
       <div class="card-title">Project ${esc(projectId)} の制作結果</div>
-      <div class="creative-direction-text"><strong>Project ${esc(projectId)} の制作が完了しました</strong></div>
+      <div class="creative-direction-text"><strong>Project ${esc(projectId)} の${esc(titleLine)}</strong></div>
       <div class="creative-direction-text">種類：${esc(data.asset_type_label || assetTypeLabel(data.asset_type))}</div>
+      <div class="creative-direction-text">画像生成方式：${_imageGenerationModeLabel(data.image_generation_mode)}</div>
       <div class="creative-direction-text">生成画像：${Number(data.image_count || 0)}枚</div>
       <div class="creative-direction-text">確認：${reviewLabel}</div>
       <div class="creative-direction-text">提出データ：${zipLabel}</div>
+      ${warningBox}
       <div class="creative-direction-text" style="margin-top:8px"><strong>次にやること</strong></div>
       <div class="creative-direction-text">${esc(data.next_action || '')}</div>
-      <div style="margin-top:10px">${downloadHtml}</div>
+      <div class="project-row-actions" style="margin-top:10px">${downloadHtml}${viewImagesHtml}</div>
     </div>
   `;
+}
+
+function viewGeneratedImages(projectId) {
+  switchTab('assets');
+  setTimeout(() => {
+    if (typeof showLineStickerDetail === 'function') showLineStickerDetail(projectId);
+  }, 0);
 }
 
 function runProductionFlow(projectId, btnEl) {
@@ -3335,6 +3445,38 @@ function runProductionFlow(projectId, btnEl) {
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 このProjectを制作する'; }
+    });
+}
+
+// Quest119：制作を再実行せずに、保存済みのproduction_report.jsonだけを
+// 表示する（Projectsタブ「🔍 結果を見る」ボタンから呼ばれる）。
+function viewProductionResult(projectId, btnEl) {
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 確認中...'; }
+
+  fetch(`/api/projects/${encodeURIComponent(projectId)}/production-report`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.exists || !data.report) {
+        const container = document.getElementById('productionRunResultContent');
+        if (container) {
+          container.innerHTML = `
+            <div class="card full">
+              <div class="card-title">Project ${esc(projectId)} の制作結果</div>
+              <div class="ceo-brief-empty">まだ制作結果がありません。「🚀 このProjectを制作する」を実行してください。</div>
+            </div>
+          `;
+        }
+        return;
+      }
+      const report = data.report;
+      renderProductionRunResult(projectId, { ...report, ok: report.status === 'success' });
+    })
+    .catch(e => {
+      const container = document.getElementById('productionRunResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔍 結果を見る'; }
     });
 }
 

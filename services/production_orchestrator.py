@@ -56,6 +56,23 @@ asset_typeが未対応（SUPPORTED_PRODUCTION_ASSET_TYPES未登録）の場合�
 - load_production_report(project_id):          保存済みレポートを読み込む
 - get_asset_type_label(asset_type):            Asset TypeのCEO向け日本語表示名を返す
 - is_supported_production_asset_type(asset_type): 実際にProduction実行できるAsset Typeか判定する
+- get_image_generation_capability():           AI画像生成が実際に使える状態か
+                                                どうかを、生成を行わずに判定する（Quest119）
+
+Quest119（Production Reality Check）：⑤画像生成の結果（AI画像生成／Pillow
+fallback）を"commercial_ready"（販売用画像として扱ってよいか）として
+production_report.jsonに明示する。Pillow fallback画像は「制作は成功した
+（status="success"）が販売用ではない（commercial_ready=false）」として
+区別し、次のおすすめActionもAI画像生成API設定の確認を促す内容に変える
+（CEOが実際に販売できる画像が作れているかを誤認しないようにするため）。
+AI画像生成が実際に使える条件は、Quest118のAI Runtime Guard
+（services/ai_runtime_guard.py）に統一されている：
+  1. DAF_RUNTIME_MODE=production
+  2. DAF_AI_ENABLED=true
+  3. OPENAI_API_KEY環境変数が設定されている
+のすべてを満たす場合のみAI画像生成が使え、いずれか1つでも欠けていれば
+Pillow fallbackになる（以前はOPENAI_API_KEYの有無だけで判定していたが、
+Quest119でAI Runtime Guard基準に統一した）。
 
 CLI:
   python services/production_orchestrator.py <project_id> [ip_name]
@@ -93,6 +110,23 @@ _STEP_LABELS = {
     "export": "⑦ Export",
 }
 
+# Quest119（Production Reality Check）：AI画像生成が実際に使える条件は
+# Quest118のAI Runtime Guard（DAF_RUNTIME_MODE=production かつ
+# DAF_AI_ENABLED=true）とOPENAI_API_KEYの設定を組み合わせて判定する。
+# generate_images()側もこのGuardを内部で確認しており（services/
+# image_generation_pipeline.py）、条件を満たさない場合は例外を投げず
+# Pillow fallback（GENERATION_MODE_FALLBACK="fallback_pillow"）へ
+# 自動的に切り替える設計になっている（image_generation_pipeline.py自体の
+# 生成ロジックは変更しない）。
+IMAGE_GENERATION_MODEL = "dall-e-2"
+
+COMMERCIAL_READY_REASON_AI = "AI画像生成による生成のため、販売用候補として確認できます。"
+COMMERCIAL_READY_REASON_FALLBACK = "Pillow fallback画像のため販売用品質ではありません"
+COMMERCIAL_READY_REASON_UNKNOWN = "画像生成方式が確認できなかったため、販売用として扱えません"
+
+_NEXT_ACTION_SUBMIT = "LINE Creators Marketへ提出してください"
+_NEXT_ACTION_CHECK_AI_SETUP = "AI画像生成API設定を確認してください（現在はテスト用の簡易画像です）"
+
 # Quest115：Project作成フォーム（dashboard_web/templates/index.html）で
 # 選べるAsset Type全種のCEO向け表示名。Production実行の可否とは独立に、
 # Dashboard上で「種類：〇〇」を表示するために使う。
@@ -124,6 +158,59 @@ def get_asset_type_label(asset_type: str | None) -> str:
 def is_supported_production_asset_type(asset_type: str | None) -> bool:
     """実際にProduction Pipelineを実行できるAsset Typeかどうかを返す。"""
     return bool(asset_type) and asset_type in SUPPORTED_PRODUCTION_ASSET_TYPES
+
+
+def get_image_generation_capability() -> dict:
+    """
+    Quest119：AI画像生成が実際に使えるかどうかを、生成を行わずに判定する
+    （読み取り専用）。判定基準はQuest118のAI Runtime Guard
+    （services/ai_runtime_guard.py）に統一されており、以下の3条件を
+    すべて満たす場合のみAI画像生成が使える：
+      1. DAF_RUNTIME_MODE=production
+      2. DAF_AI_ENABLED=true
+      3. OPENAI_API_KEY環境変数が設定されている
+    （Quest118以前はOPENAI_API_KEYの有無だけで判定していたが、開発・
+    テスト中にAPIキーさえ設定されていればAI呼び出し可能と誤認識される
+    問題があったため、Quest119でAI Runtime Guard基準に統一した）。
+
+    戻り値: {"ai_configured": bool, "model": str, "fallback_reason": str | None}
+    例外を投げない。
+    """
+    import os
+    from services.ai_runtime_guard import is_ai_enabled, get_runtime_mode
+
+    api_key_present = bool(os.getenv("OPENAI_API_KEY"))
+    guard_enabled = is_ai_enabled()
+
+    if guard_enabled and api_key_present:
+        return {"ai_configured": True, "model": IMAGE_GENERATION_MODEL, "fallback_reason": None}
+
+    if not guard_enabled:
+        fallback_reason = (
+            f"AI Runtime Guardが無効です（DAF_RUNTIME_MODE={get_runtime_mode()}）。"
+            "DAF_RUNTIME_MODE=production かつ DAF_AI_ENABLED=true の場合のみAI画像生成を"
+            "使用できます。Pillowによる簡易画像（テスト用、販売用品質ではありません）に"
+            "フォールバックします。"
+        )
+    else:
+        fallback_reason = (
+            "OPENAI_API_KEYが未設定のため、Pillowによる簡易画像（テスト用、"
+            "販売用品質ではありません）にフォールバックします。"
+        )
+    return {"ai_configured": False, "model": IMAGE_GENERATION_MODEL, "fallback_reason": fallback_reason}
+
+
+def _commercial_readiness(image_generation_mode: str | None) -> tuple[bool, str]:
+    """
+    Quest119：画像生成方式（image_generation_mode）から、販売用画像として
+    扱ってよいかどうかを判定する。AI画像生成（"ai"）の場合のみTrue。
+    Pillow fallback（"fallback_pillow"）・未実行（None）はFalse。
+    """
+    if image_generation_mode == "ai":
+        return True, COMMERCIAL_READY_REASON_AI
+    if image_generation_mode == "fallback_pillow":
+        return False, COMMERCIAL_READY_REASON_FALLBACK
+    return False, COMMERCIAL_READY_REASON_UNKNOWN
 
 
 def _resolve_asset_type(
@@ -210,9 +297,11 @@ def run_production(
              "asset_type_label": str, "started_at": str, "finished_at": str,
              "status": "success"|"failed"|"unsupported_asset_type",
              "completed_steps": list[str], "failed_step": str | None,
-             "error": str | None, "image_count": int, "review_mode": str | None,
-             "review_needs_fix": bool, "zip_filename": str | None,
-             "next_action": str}
+             "error": str | None, "image_count": int,
+             "image_generation_mode": "ai"|"fallback_pillow"|None,
+             "commercial_ready": bool, "commercial_ready_reason": str,
+             "review_mode": str | None, "review_needs_fix": bool,
+             "zip_filename": str | None, "next_action": str}
     （status="unsupported_asset_type"の場合はmessageのみを含む簡略な戻り値）
     例外を投げない。
     """
@@ -230,11 +319,19 @@ def run_production(
     started_at = datetime.now().strftime("%Y-%m-%d %H:%M")
     completed_steps: list[str] = []
     image_count = 0
+    image_generation_mode = None
     review_mode = None
     review_needs_fix = False
     zip_filename = None
 
     def _finish(status: str, failed_step: str | None, error: str | None) -> dict:
+        commercial_ready, commercial_ready_reason = _commercial_readiness(image_generation_mode)
+
+        if status == STATUS_SUCCESS:
+            next_action = _NEXT_ACTION_SUBMIT if commercial_ready else _NEXT_ACTION_CHECK_AI_SETUP
+        else:
+            next_action = f"{_STEP_LABELS.get(failed_step, failed_step)}が失敗しました。内容を確認して再実行してください。"
+
         report = {
             "project_id": project_id,
             "asset_type": resolved_asset_type,
@@ -246,14 +343,13 @@ def run_production(
             "failed_step": failed_step,
             "error": error,
             "image_count": image_count,
+            "image_generation_mode": image_generation_mode,
+            "commercial_ready": commercial_ready,
+            "commercial_ready_reason": commercial_ready_reason,
             "review_mode": review_mode,
             "review_needs_fix": review_needs_fix,
             "zip_filename": zip_filename,
-            "next_action": (
-                "LINE Creators Marketへ提出してください"
-                if status == STATUS_SUCCESS
-                else f"{_STEP_LABELS.get(failed_step, failed_step)}が失敗しました。内容を確認して再実行してください。"
-            ),
+            "next_action": next_action,
         }
         save_production_report(project_id, report, outputs_dir=outputs_dir)
         return {"ok": status == STATUS_SUCCESS, **report}
@@ -280,6 +376,7 @@ def run_production(
         if not image_result.get("ok"):
             return _finish(STATUS_FAILED, "image_generation", image_result.get("error") or "画像生成に失敗しました")
         image_count = len(image_result.get("image_files") or [])
+        image_generation_mode = image_result.get("generation_mode")
     except Exception as e:
         return _finish(STATUS_FAILED, "image_generation", str(e))
     completed_steps.append("image_generation")

@@ -172,6 +172,10 @@ def generate_memory_suggestions(
         print("[Memory Review] memory/*.md が見つかりません → スキップ")
         return None
 
+    from services.ai_runtime_guard import require_ai_enabled
+    if not require_ai_enabled("Memory Review"):
+        return None
+
     report = _load_report(outputs)
 
     print("[Memory Review] 会社メモリの見直し提案を生成中...")

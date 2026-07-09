@@ -504,6 +504,14 @@ def analyze_reference_image(image_path: str) -> dict:
             error="OPENROUTER_API_KEY not set",
         )
 
+    from services.ai_runtime_guard import require_ai_enabled
+    if not require_ai_enabled("Reference AI Analysis"):
+        return _empty_reference_analysis(
+            "AI Runtime GuardによりAI呼び出しが無効化されています"
+            "（tags/animal/color/moodは手動で入力してください）。",
+            error="AI runtime guard: AI disabled",
+        )
+
     try:
         import base64
         import litellm

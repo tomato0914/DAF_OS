@@ -71,8 +71,13 @@ class ProductionOrchestratorTest(unittest.TestCase):
         )
 
     def test_next_action_on_success(self):
+        # Quest119：OPENAI_API_KEY未設定のためPillow fallback画像になり、
+        # 販売用（commercial_ready=True）の提出案内ではなく、AI画像生成API
+        # 設定の確認を促すnext_actionになる（このテストファイルの前提
+        # 通り、AI呼び出しへは接続しない）。
         result = run_production("004", count=2, outputs_dir=self.outputs_dir)
-        self.assertEqual(result["next_action"], "LINE Creators Marketへ提出してください")
+        self.assertFalse(result["commercial_ready"])
+        self.assertIn("AI画像生成API設定", result["next_action"])
 
     def test_stops_at_failed_step_and_does_not_continue(self):
         with patch(

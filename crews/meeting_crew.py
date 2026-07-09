@@ -41,6 +41,25 @@ def run_meeting_crew(
     cosmos_page_id: str | None = None,
     company_memory: str = "",
 ) -> dict[str, str]:
+    from services.ai_runtime_guard import require_ai_enabled
+    if not require_ai_enabled("Meeting Crew / AI経営会議"):
+        message = (
+            "AI Runtime GuardによりAI呼び出しが無効化されているため、"
+            "AI経営会議は実行されませんでした（DAF_RUNTIME_MODE=production かつ "
+            "DAF_AI_ENABLED=true の場合のみ実行できます）。"
+        )
+        meeting_log = (
+            f"# DAFに相談 会議ログ\n\n"
+            f"> 実行日時: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"> CEOからの相談: {ceo_input}\n\n"
+            "---\n\n"
+            f"⚠️ {message}\n"
+        )
+        return {
+            "sirius": message, "nova": message, "cosmos": message,
+            "atlas": message, "orion": message, "meeting_log": meeting_log,
+        }
+
     llm = build_llm(openrouter_api_key)
     llm_long = build_llm(openrouter_api_key, max_tokens=3000)
 

@@ -913,6 +913,43 @@ def api_projects_production_report(project_id):
         return jsonify({"exists": False, "project_id": safe_id, "error": str(e)}), 500
 
 
+@app.route("/api/production/image-generation-status")
+def api_production_image_generation_status():
+    """
+    Quest119（Production Reality Check）：AI画像生成が実際に使える状態かを、
+    生成を行わずに返す。判定基準はQuest118のAI Runtime Guardに統一されて
+    おり、DAF_RUNTIME_MODE=production・DAF_AI_ENABLED=true・
+    OPENAI_API_KEY設定済みの3条件をすべて満たす場合のみai_configured=true
+    になる。CEOが「制作する」を押す前に、実際に販売用画像が作れる状態かを
+    確認できるようにする。
+    """
+    try:
+        from services.production_orchestrator import get_image_generation_capability
+        return jsonify(get_image_generation_capability())
+    except Exception as e:
+        return jsonify({"ai_configured": False, "model": None, "fallback_reason": None, "error": str(e)}), 500
+
+
+# ──────────────────────────────────────────
+# AI Runtime Guard（Quest118・APIコスト防止）
+# 開発・テスト中にOpenRouter / OpenAI等のAI APIが意図せず呼ばれないよう、
+# services/ai_runtime_guard.pyの判定結果をそのまま返すだけ（読み取り専用、
+# ここでAI呼び出しは一切行わない）。
+# ──────────────────────────────────────────
+
+@app.route("/api/ai-runtime/status")
+def api_ai_runtime_status():
+    """現在のAI Runtime状態（AI ON/OFF・runtime_mode・理由）を返す。"""
+    try:
+        from services.ai_runtime_guard import get_ai_status
+        return jsonify(get_ai_status())
+    except Exception as e:
+        return jsonify({
+            "ai_enabled": False, "runtime_mode": "development",
+            "reason": str(e), "provider": "openrouter", "api_calls_blocked": True,
+        }), 500
+
+
 # ──────────────────────────────────────────
 # Dashboard Review Package（Quest116）
 # DAF OS自身が「今どんな状態か」をExecutive Board（CEO／外部レビュー）向けに

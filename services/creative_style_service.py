@@ -246,6 +246,12 @@ def generate_style_guide(ip_name: str, outputs_dir: Path | None = None) -> dict:
             return {"ok": True, "markdown": _template_style_guide(ip_name, dna),
                      "source": "template", "error": None}
 
+        from services.ai_runtime_guard import require_ai_enabled
+        if not require_ai_enabled("Style Guide生成"):
+            return {"ok": True, "markdown": _template_style_guide(ip_name, dna),
+                     "source": "template",
+                     "error": "AI Runtime GuardによりAI呼び出しが無効化されているためテンプレートを使用"}
+
         try:
             import litellm
 
@@ -317,6 +323,11 @@ def generate_prompt_rules(ip_name: str, outputs_dir: Path | None = None) -> dict
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             return {"ok": True, "rules": _template_prompt_rules(dna), "source": "template", "error": None}
+
+        from services.ai_runtime_guard import require_ai_enabled
+        if not require_ai_enabled("Prompt Rules生成"):
+            return {"ok": True, "rules": _template_prompt_rules(dna), "source": "template",
+                     "error": "AI Runtime GuardによりAI呼び出しが無効化されているためテンプレートを使用"}
 
         try:
             import litellm

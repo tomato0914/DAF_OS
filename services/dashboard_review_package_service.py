@@ -402,7 +402,9 @@ def build_review_package_summary_markdown(
     generated_at: str,
 ) -> str:
     """Executive Boardが最初に読む要約Markdownを組み立てる。"""
-    from services.production_orchestrator import SUPPORTED_PRODUCTION_ASSET_TYPES, get_asset_type_label
+    from services.production_orchestrator import (
+        SUPPORTED_PRODUCTION_ASSET_TYPES, get_asset_type_label, get_image_generation_capability,
+    )
 
     projects = project_summary.get("projects", [])
     asset_types_in_use = {p.get("asset_type") for p in projects if p.get("asset_type")}
@@ -417,6 +419,17 @@ def build_review_package_summary_markdown(
             return "（なし）"
         return "、".join(f"{get_asset_type_label(t)}（{t}）" for t in types)
 
+    # Quest119：制作結果が「動いているだけ」ではなく、実際に販売可能な
+    # 画像（AI画像生成）になっているかをExecutive Boardが最初に判断できる
+    # ようにする。
+    image_gen = get_image_generation_capability()
+    ai_status_line = (
+        f"AI画像生成API：{'設定済み' if image_gen.get('ai_configured') else '未設定'}"
+        f"／使用予定モデル：{image_gen.get('model')}"
+    )
+    if not image_gen.get("ai_configured"):
+        ai_status_line += f"／fallback理由：{image_gen.get('fallback_reason')}"
+
     lines = [
         "# Review Package Summary",
         "",
@@ -426,6 +439,7 @@ def build_review_package_summary_markdown(
         f"- 未対応Asset Type：{_label_list(unsupported_in_use)}",
         f"- Production可能Project数：{production_possible_count}",
         f"- 提出準備済みProject数：{ready_count}",
+        f"- {ai_status_line}",
         "",
         "## 主な次アクション",
         f"- {ceo_home_summary.get('next_action', '-')}",
