@@ -3186,3 +3186,113 @@ CEOが迷わず使えるようDashboardを断捨離・整理した。Production 
 - Project × IP Memoryの紐付け永続化
 - AIレビュー結果 × CEO承認フローの接続
 - 複数プラットフォームExport Adapter追加
+
+---
+
+# 最新状況（2026-07-09・Quest115：Universal Production / 汎用Production Factory化）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：Production Phase**
+
+## 完了Quest
+Quest115まで完了。
+
+## Quest115内容
+DAF OSは`Digital Asset Factory`であり、LINEスタンプ専用ツールではないという
+設計原則を明文化し、Quest108〜113で構築したProduction Pipelineを
+「LINEスタンプ専用」から「Digital Asset共通のProduction」へ概念・UI・
+Report構造の面で昇格させた。テーマは「Universal Production — Digital
+Asset Factory, not LINE Sticker Factory.」。既存Production Pipeline本体
+（Prompt Builder v2 / Image Generation Pipeline / AI Review Engine /
+Export Engine）は無変更。設計原則として
+
+```
+Project → Asset Type → Production → Export Adapter
+```
+
+を採用し、line_stickerは現在対応済みのAsset Typeの1つ、その他
+（youtube_short／ios_app等）は準備中のAsset Typeとして扱う。
+
+変更ファイル：
+- `services/production_orchestrator.py`
+- `dashboard_web/app.py`
+- `dashboard_web/templates/index.html`
+- `tests/test_quest115_universal_production.py`（新規）
+
+- **Production Orchestratorの汎用化**：`run_production()`の`asset_type`
+  引数を`None`許容にし、未指定時はProject情報
+  （`services/project_service.list_projects`）から自動取得する
+  （`_resolve_asset_type()`）。Project未存在時は従来通り`line_sticker`へ
+  フォールバックするため、既存Quest113テストの挙動は変わらない。
+  `SUPPORTED_PRODUCTION_ASSET_TYPES = {"line_sticker": "LINEスタンプ"}`を
+  新設し、未対応のAsset Typeはどのステップも実行せず
+  `{"ok": false, "status": "unsupported_asset_type", "message": "この
+  種類の制作フローは現在準備中です。", "asset_type": "...",
+  "asset_type_label": "..."}`を安全に返す（production_report.jsonへの
+  保存も行わない＝実行していない工程のレポートは残さない）。
+  `ASSET_TYPE_LABELS`にProject作成フォームの全種類
+  （line_sticker/youtube_short/blog/ebook/ios_app/saas/generic）分の
+  CEO向け日本語表示名を持たせた。Export Adapter切り替えの思想
+  （line_sticker→LineExportAdapter実装済み、wallpaper／icon→将来の
+  Adapter）はコード・コメントで明示したが、`export_engine.py`自体は
+  今回変更していない（Production Pipelineの中核ロジックを壊さない
+  方針のため、Asset Type軸のAdapter切り替えは将来のQuestで対応）。
+- **`dashboard_web/app.py`**：`/api/projects/run-production`が
+  asset_typeを強制せず、未指定時はOrchestrator側の自動解決に委ねる
+  ように修正。
+- **`dashboard_web/templates/index.html`**：Projectsタブの主ボタンを
+  「🚀 LINEスタンプを作る」から「🚀 このProjectを制作する」へ変更。
+  完了メッセージも「Project ${id} の制作が完了しました」＋「種類：
+  ${asset_type_label}」という汎用形式にし、未対応Asset Typeの場合は
+  エラー扱いにせず「🚧 この種類の制作フローは現在準備中です。」と
+  表示する。Project行にも「種類：LINEスタンプ」「種類：YouTube
+  Short（制作フロー準備中）」のように表示するASSET_TYPE_LABELS・
+  SUPPORTED_PRODUCTION_ASSET_TYPESをJS側にも追加（バックエンドの
+  定義と対応させている）。旧パイプライン（Developer Mode内）の文言も
+  あわせて更新。
+- `tests/test_quest115_universal_production.py`：新規（15件）。
+  line_stickerが従来通りProduction成功すること、production_reportに
+  asset_type/asset_type_labelが記録されること、未対応asset_typeが
+  安全に失敗しレポートを残さないこと、Project情報からのasset_type
+  自動解決、Flask APIレベルの検証、Dashboardの主ボタン文言変更を確認。
+
+## 動作確認結果
+- Dashboard起動・プロジェクトタブ表示：OK（既存機能に回帰なし）
+- 主ボタンが全Project行で「🚀 このProjectを制作する」に統一され、
+  各行に「種類：LINEスタンプ」が表示されることを確認
+- Asset Type「youtube_short」の新規Projectを作成し、行に「種類：
+  YouTube Short（制作フロー準備中）」と表示されることを確認
+- そのProjectで「🚀 このProjectを制作する」を実行 →
+  「Project 008 の制作結果／種類：YouTube Short／🚧 この種類の
+  制作フローは現在準備中です。」と安全に表示され、DAF OS全体には
+  影響がないことを確認
+- Project 002（line_sticker）で従来通り実行 → 「Project 002 の
+  制作結果／Project 002 の制作が完了しました／種類：LINEスタンプ／
+  生成画像：3枚／…」と表示されることを確認
+- `outputs/production_reports/002/production_report.json`に
+  `"asset_type": "line_sticker"`・`"asset_type_label": "LINEスタンプ"`
+  が記録されていることを確認
+- `tests/`配下193件（Quest102〜114の178件＋Quest115の15件）すべてpass
+
+## commit / push
+- commit hash：`ceaf393`（`feat: generalize production for asset types`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- wallpaper／icon等、line_sticker以外のAsset Typeの実際のProduction
+  実装（Image Generation・Export Adapterの拡張）
+- Export Adapter軸をplatformからAsset Typeベースへ整理する将来設計の
+  具体化
+- Project × IP Memoryの紐付け永続化（①②③を毎回ip_name指定せずに
+  判定できるようにする）
+- CEOがAIレビュー結果を踏まえて承認・却下する導線
+
+## 今後のロードマップ
+- 複数Asset Type（wallpaper／icon等）の実Production対応
+- Export Adapterの複数プラットフォーム・複数Asset Type対応
+- Project × IP Memoryの紐付け永続化
+- AIレビュー結果 × CEO承認フローの接続
