@@ -3296,3 +3296,106 @@ Project → Asset Type → Production → Export Adapter
 - Export Adapterの複数プラットフォーム・複数Asset Type対応
 - Project × IP Memoryの紐付け永続化
 - AIレビュー結果 × CEO承認フローの接続
+
+---
+
+# 最新状況（2026-07-09・Quest116：Dashboard Review Package）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：Production Phase**
+
+## 完了Quest
+Quest116まで完了。
+
+## Quest116内容
+DAF OS自身が「今どんな状態か・どんな画面構造か・どんなProjectがあるか・
+どこまでProductionが進んでいるか・CEOが次に何を見るべきか」を、
+Executive Board（CEO／ChatGPT等の外部レビュー）へ1クリックで提出できる
+仕組みを追加した。テーマは「Dashboard Review Package — DAF OS can report
+its own state.」。想定運用は「CEOがDashboardを操作 → Review Packageを
+生成 → ChatGPT / Executive Boardがレビュー → 改善点を決定 → Claude Code
+が実装」というサイクル。既存Production Pipeline・既存Serviceのロジックは
+一切変更せず、既存Service（project_service・production_status_service・
+production_orchestrator・asset_generator_service・notification_service・
+issue_pipeline_service）を読み取り専用で束ねるだけの新規Serviceとして
+実装した。
+
+- `services/dashboard_review_package_service.py`：新規。
+  - `create_review_package(outputs_dir=None, projects_dir=None)` —
+    Review Package一式を生成し、`outputs/review_packages/<package_id>/`
+    （package_idは`YYYY-MM-DD_HHMMSS`形式）へ保存する。
+  - 生成ファイル：`dashboard_structure.md`（タブ構成・主要ボタン・CEO/
+    Developer導線、Quest112〜115時点の仕様に基づく固定テンプレート）・
+    `api_summary.md`（主要API一覧、固定テンプレート）・
+    `project_summary.json`（Project一覧、asset_type_label・next_action
+    付き）・`production_status.json`（Quest112の
+    production_status_serviceを再利用したProject別進捗）・
+    `ceo_home_summary.json`（`/api/dashboard/home`と同じ算出方法での
+    集計）・`ux_notes.md`（現在分かっているUX上の注意点、固定
+    テンプレート）・`review_package_summary.md`（Project数・対応済み/
+    未対応Asset Type・Production可能Project数・提出準備済みProject数・
+    主な次アクションの自動集計）・`review_package.zip`（上記一式）。
+  - `list_review_packages()` / `get_latest_review_package()` /
+    `get_review_package_zip_path()` — 生成済みPackageの一覧・最新
+    取得・ダウンロード用パス取得。
+  - 各収集処理は個別にtry/exceptで守られ、1つの情報源が読み込めなくても
+    Review Package全体の生成を止めない。
+- `dashboard_web/app.py`：
+  - `POST /api/dashboard/review-package/create` — Review Packageを生成する。
+  - `GET /api/dashboard/review-package/latest` — 最新のReview Package情報
+    （package_id・含まれるファイル一覧）を返す。
+  - `GET /api/dashboard/review-package/download/<package_id>` —
+    指定Review Packageのreview_package.zipをダウンロードさせる。
+- `dashboard_web/templates/index.html`：ダッシュボードタブに
+  「📦 Dashboard Review Package」カード・「📦 Review Packageを作成」
+  ボタンを追加。作成後は「作成日時／含まれるファイル一覧／⬇
+  ダウンロードリンク」を表示する。動作確認中に、30秒ごとの自動更新で
+  ダッシュボードタブ全体が再描画され、生成直後の結果パネルが消える
+  問題を発見したため、Quest52のAI経営会議カード（lastMeetingResult）と
+  同じパターンでlastReviewPackageResultというモジュール変数を導入し、
+  自動更新後も直近のReview Package結果を表示し続けるよう修正した。
+- `tests/test_quest116_dashboard_review_package.py`：新規（14件）。
+  Review Packageディレクトリ・必須ファイル・project_summary.json・
+  production_status.json・review_package_summary.md・ZIPの生成、
+  Flask APIの作成・最新取得・ダウンロード（正常系・異常系）を検証。
+
+## 動作確認結果
+- Dashboard起動・ダッシュボードタブ表示：OK（既存機能に回帰なし）
+- 「📦 Review Packageを作成」をクリック →
+  `POST /api/dashboard/review-package/create`が200で成功し、結果パネルに
+  「Review Packageを作成しました／作成日時／含まれるファイル一覧（8件）／
+  ⬇ review_package.zipをダウンロード」と表示されることを確認
+- 30秒の自動更新を跨いでも結果パネルの内容が消えないことを確認
+  （lastReviewPackageResultによる復元が機能）
+- 「⬇ review_package.zipをダウンロード」リンク →
+  `GET /api/dashboard/review-package/download/<package_id>`が200を
+  返すことをサーバーログで確認
+- 実際に生成された`outputs/review_packages/<package_id>/`配下の
+  ファイル一式・ZIP中身（7ファイル）を直接確認し、
+  review_package_summary.mdに「Project数：8／対応済みAsset Type：
+  LINEスタンプ／未対応Asset Type：YouTube Short／Production可能
+  Project数：7／提出準備済みProject数：2」等、実データに基づく集計が
+  正しく反映されていることを確認
+- `tests/`配下207件（Quest102〜115の193件＋Quest116の14件）すべてpass
+
+## commit / push
+- commit hash：`aaa932b`（`feat: add dashboard review package`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- Review Packageへのスクリーンショット自動撮影の追加（Quest116では
+  意図的に対象外）
+- dashboard_structure.md・api_summary.mdの自動抽出化（現状は固定
+  テンプレート）
+- wallpaper／icon等、line_sticker以外のAsset Typeの実際のProduction実装
+- Project × IP Memoryの紐付け永続化
+
+## 今後のロードマップ
+- Review Packageのスクリーンショット対応・自動抽出化
+- 複数Asset Type（wallpaper／icon等）の実Production対応
+- Export Adapterの複数プラットフォーム・複数Asset Type対応
+- Project × IP Memoryの紐付け永続化
