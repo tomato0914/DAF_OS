@@ -131,7 +131,10 @@ class RunProductionApiTest(unittest.TestCase):
 
 
 class DashboardMainButtonLabelTest(unittest.TestCase):
-    """Projectsタブの主ボタンが汎用文言に変わっていることを確認する（文字列検証のみ）。"""
+    """Projectsタブの主要な制作導線が汎用文言に変わっていることを確認する
+    （文字列検証のみ）。Quest121でProjectsタブの主導線は「🚀 このProjectを
+    制作する」（内部AI一括制作）から①〜⑤の外部画像ワークフローへ変わり、
+    旧文言はDeveloper Mode内の「🤖 内部AIで一括制作」に置き換わった。"""
 
     @classmethod
     def setUpClass(cls):
@@ -139,7 +142,7 @@ class DashboardMainButtonLabelTest(unittest.TestCase):
         cls.template_text = template_path.read_text(encoding="utf-8")
 
     def test_main_button_uses_generic_wording(self):
-        self.assertIn("🚀 このProjectを制作する", self.template_text)
+        self.assertIn("① プロンプト生成", self.template_text)
 
     def test_main_button_no_longer_says_line_sticker_specific_wording(self):
         self.assertNotIn("🚀 LINEスタンプを作る", self.template_text)

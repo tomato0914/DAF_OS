@@ -1236,29 +1236,50 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
           <td>${badge}</td>
           <td>${esc(nextAction)}</td>
           <td>
-            <div class="project-row-actions">
-              <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 このProjectを制作する</button>
-              <button class="btn btn-ghost" onclick="viewProductionResult('${esc(p.id)}', this)">🔍 結果を見る</button>
-              ${zipFile
-                ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ 提出データをダウンロード</a>`
-                : ''}
+            <div class="production-flow-steps">
+              <div class="project-row-actions" style="margin-bottom:6px">
+                <strong style="min-width:190px;display:inline-block">① プロンプト生成</strong>
+                <button class="btn" onclick="buildProjectPrompt('${esc(p.id)}', this)">プロンプトを作る</button>
+              </div>
+              <div class="project-row-actions" style="margin-bottom:6px">
+                <strong style="min-width:190px;display:inline-block">② Geminiで画像生成（CEO手動）</strong>
+                <button class="btn" onclick="copyPromptAndOpenGemini('${esc(p.id)}', this)">📋 プロンプトをコピーしてGeminiを開く</button>
+              </div>
+              <div class="project-row-actions" style="margin-bottom:6px">
+                <strong style="min-width:190px;display:inline-block">③ 画像アップロード</strong>
+                <input type="file" id="uploadFiles_${esc(p.id)}" class="project-input" style="display:inline-block;width:auto"
+                       multiple accept="image/png,image/jpeg,image/webp">
+                <button class="btn" onclick="uploadProjectImages('${esc(p.id)}', this)">アップロード</button>
+              </div>
+              <div class="project-row-actions" style="margin-bottom:6px">
+                <strong style="min-width:190px;display:inline-block">④ 品質チェック（AIレビュー）</strong>
+                <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">確認する</button>
+              </div>
+              <div class="project-row-actions">
+                <strong style="min-width:190px;display:inline-block">⑤ 提出データ作成</strong>
+                <button class="btn btn-approve" onclick="exportProject('${esc(p.id)}', this)">Export</button>
+                ${zipFile
+                  ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ 提出データをダウンロード</a>`
+                  : ''}
+              </div>
+            </div>
+            <div class="project-row-actions" style="margin-top:8px">
+              <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
             </div>
             <details class="project-dev-mode">
               <summary>🔧 詳細操作を表示（開発者向け）</summary>
               <div class="project-row-actions" style="margin-top:8px">
-                <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
+                <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🤖 内部AIで一括制作（将来のAPI接続用・開発者向け）</button>
+                <button class="btn btn-ghost" onclick="viewProductionResult('${esc(p.id)}', this)">🔍 結果を見る（一括制作）</button>
                 ${canGenerateAssets
                   ? `<button class="btn" onclick="generateProjectAssets('${esc(p.id)}', this)">アセット生成（旧UI）</button>`
                   : ''}
-                <button class="btn" onclick="buildProjectPrompt('${esc(p.id)}', this)">④ プロンプト生成</button>
                 <select class="project-input" id="imgGenCount_${esc(p.id)}" style="display:inline-block;width:auto;max-width:70px">
                   <option value="1">1枚</option>
                   <option value="2">2枚</option>
                   <option value="3">3枚</option>
                 </select>
-                <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
-                <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ 確認（AIレビュー）</button>
-                <button class="btn" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出データ作成</button>
+                <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">内部AIで画像生成（テスト/Pillow fallback）</button>
               </div>
             </details>
             ${p.status !== 'archived'
@@ -1288,14 +1309,19 @@ function fetchImageGenerationStatus() {
     .then(data => {
       const el = document.getElementById('imageGenerationStatusBanner');
       if (!el) return;
+      const runtimeLabel = data.ai_enabled ? `ON（${esc(data.runtime_mode || '-')}）` : `OFF（${esc(data.runtime_mode || '-')}）`;
       if (data.ai_configured) {
-        el.innerHTML = '';
+        el.innerHTML = `
+          <div class="card full">
+            ✅ AI画像生成が利用可能です（モデル: ${esc(data.model || '-')} / AI Runtime: ${runtimeLabel}）
+          </div>
+        `;
         return;
       }
       el.innerHTML = `
         <div class="card full error-box">
-          ⚠️ AI画像生成API（${esc(data.model || '')}）が未設定です。今「制作する」を実行すると、
-          Pillowによるテスト用の簡易画像が生成されます（販売用画像ではありません）。<br>
+          ⚠️ AI画像生成は現在利用できません（設定モデル: ${esc(data.model || '-')} / AI Runtime: ${runtimeLabel}）。
+          今「制作する」を実行すると、Pillowによるテスト用の簡易画像が生成されます（販売用画像ではありません）。<br>
           ${esc(data.fallback_reason || '')}
         </div>
       `;
@@ -1406,7 +1432,7 @@ function renderLineStickerProjectList(projects) {
   let html = '<div class="card-title">🐶 LINEスタンプ Project別成果物</div>';
 
   if (_lineStickerProjects.length === 0) {
-    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「🚀 このProjectを制作する」から生成してください。</div>';
+    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの①〜⑤の制作フローから作成してください。</div>';
     document.getElementById('lineStickerProjectListContent').innerHTML = html;
     return;
   }
@@ -1761,8 +1787,9 @@ function renderFactoryPanelCard() {
       <div class="card-title" style="margin-top:10px">🏭 DAF 制御盤（旧UI）</div>
       <p class="factory-panel-desc">
         Quest96時代の旧パイプラインです。現在の推奨導線は🗂️ プロジェクトタブの
-        「🚀 このProjectを制作する」です。ボタン1つで「Project作成 → Execution Plan生成 →
-        Asset生成 → レビュー確認」まで一気に進めます。
+        ①〜⑤の制作フロー（プロンプト生成 → Geminiで画像生成 → 画像アップロード →
+        品質チェック → 提出データ作成）です。内部AIによる一括制作は本Details内の
+        「🤖 内部AIで一括制作」から利用できます（将来のAPI接続用）。
       </p>
       <button class="btn btn-factory" id="oneClickStampBtn" onclick="startOneClickStamp()">旧スタンプ生成（Developer）</button>
       <div class="factory-progress" id="factoryProgress" style="display:none">${steps}</div>
@@ -3047,9 +3074,10 @@ function renderPromptBuilderResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">Project ${esc(projectId)} の制作結果（④ プロンプト生成）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（① プロンプト生成）</div>
       <div class="creative-direction-text">保存先: <code>${esc(data.path || '-')}</code></div>
-      <pre class="ip-bible-preview" style="margin-top:8px">${esc(data.prompt || '')}</pre>
+      <div class="creative-direction-text">次は②「プロンプトをコピーしてGeminiを開く」で画像を生成してください。</div>
+      <pre class="ip-bible-preview" id="currentPromptText" data-project-id="${esc(projectId)}" style="margin-top:8px">${esc(data.prompt || '')}</pre>
     </div>
   `;
 }
@@ -3069,7 +3097,64 @@ function buildProjectPrompt(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '④ プロンプト生成'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'プロンプトを作る'; }
+    });
+}
+
+// Quest121（External Image Workflow）：②Geminiで画像生成（CEO手動）。
+// DAFはAPI接続せず、①で生成済みのプロンプトをクリップボードへコピーし、
+// Geminiを新規タブで開くだけの補助動線を提供する。
+function copyPromptAndOpenGemini(projectId, btnEl) {
+  const pre = document.getElementById('currentPromptText');
+  const promptText = (pre && pre.dataset.projectId === projectId) ? pre.textContent : '';
+
+  if (!promptText) {
+    alert('先に①「プロンプトを作る」を実行してください。');
+    return;
+  }
+
+  const openGemini = () => window.open('https://gemini.google.com/', '_blank', 'noopener');
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(promptText).then(openGemini).catch(() => {
+      alert('クリップボードへのコピーに失敗しました。以下のプロンプトを手動でコピーしてください:\n\n' + promptText);
+      openGemini();
+    });
+  } else {
+    alert('以下のプロンプトを手動でコピーしてください:\n\n' + promptText);
+    openGemini();
+  }
+}
+
+// Quest121：③画像アップロード（CEOがGemini等で手動生成したPNG/JPEG/WebPを
+// Projectへ登録する）。実API接続は行わない。
+function uploadProjectImages(projectId, btnEl) {
+  const input = document.getElementById(`uploadFiles_${projectId}`);
+  const files = input && input.files ? Array.from(input.files) : [];
+  if (!files.length) {
+    alert('画像ファイルを選択してください。');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('id', projectId);
+  formData.append('source', 'gemini');
+  files.forEach(f => formData.append('files', f));
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ アップロード中...'; }
+
+  fetch('/api/projects/upload-images', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      renderImageGenerationResult(projectId, data);
+      if (input) input.value = '';
+    })
+    .catch(e => {
+      const container = document.getElementById('imageGenerationResultContent');
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'アップロード'; }
     });
 }
 
@@ -3087,20 +3172,25 @@ function renderImageGenerationResult(projectId, data) {
     return;
   }
 
-  const modeLabel = data.generation_mode === 'ai' ? '🤖 AI生成' : '🖌️ Pillowフォールバック';
+  const modeLabel = IMAGE_GENERATION_MODE_LABELS[data.generation_mode] || '❔ 不明（エラー）';
   const thumbs = (data.image_files || []).map(filename => `
     <img class="sticker-project-thumb" style="margin:4px"
          src="/api/generated-assets/image/${esc(data.asset_type)}/${encodeURIComponent(projectId)}/${encodeURIComponent(filename)}"
          alt="${esc(filename)}">
   `).join('');
 
+  const skippedNote = data.skipped_count
+    ? `<div class="creative-direction-text">⚠️ ${Number(data.skipped_count)}件のファイルは画像として認識できず、取り込まれませんでした。</div>`
+    : '';
+
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">Project ${esc(projectId)} の制作結果（⑤ 画像生成）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（画像）</div>
       <div class="creative-direction-text">
-        生成方式: ${modeLabel}　使用プロンプト: <code>${esc(data.prompt_file || '-')}</code>
+        画像生成方式: ${modeLabel}${data.prompt_file ? `　使用プロンプト: <code>${esc(data.prompt_file)}</code>` : ''}
       </div>
       <div class="creative-direction-text">保存先: <code>${esc(data.path || '-')}</code></div>
+      ${skippedNote}
       <div style="margin-top:8px;display:flex;flex-wrap:wrap">${thumbs}</div>
     </div>
   `;
@@ -3124,7 +3214,7 @@ function generateProjectImage(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑤ 画像生成'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '内部AIで画像生成（テスト/Pillow fallback）'; }
     });
 }
 
@@ -3171,7 +3261,7 @@ function renderAiReviewResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">Project ${esc(projectId)} の制作結果（⑥ AIレビュー）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（④ 品質チェック）</div>
       <div class="creative-direction-text">
         方式: ${modeLabel}　総合スコア: ${'⭐'.repeat(Number(report.overall_score || 0))} (${esc(String(report.overall_score))}/5)
         ${anyNeedsFix ? '⚠️ 要確認項目あり' : '✅ 要確認項目なし'}
@@ -3205,7 +3295,7 @@ function reviewProjectImages(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑥ AIレビュー'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '確認する'; }
     });
 }
 
@@ -3240,7 +3330,7 @@ function renderExportResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">Project ${esc(projectId)} の制作結果（⑦ 提出データ作成）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（⑤ 提出データ作成）</div>
       <div class="creative-direction-text">${readyLabel}　作成日時: ${esc(report.exported_at || '-')}</div>
       ${errorsHtml}
       ${warningsHtml}
@@ -3270,7 +3360,7 @@ function exportProject(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ 提出データ作成'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Export'; }
     });
 }
 
@@ -3301,6 +3391,7 @@ function renderProductionStatus(projectId, data) {
     <tr>
       <td>${stepNumbers[idx] || ''} ${esc(s.label)}</td>
       <td>${PRODUCTION_STEP_ICONS[s.status] || esc(s.status)}</td>
+      <td>${esc(s.detail || '')}</td>
     </tr>
   `).join('');
 
@@ -3314,7 +3405,7 @@ function renderProductionStatus(projectId, data) {
       <div class="creative-direction-text">${readyLabel}</div>
       <div class="table-scroll" style="margin-top:10px">
         <table class="simple-table">
-          <thead><tr><th>ステップ</th><th>状態</th></tr></thead>
+          <thead><tr><th>ステップ</th><th>状態</th><th>詳細</th></tr></thead>
           <tbody>${stepRows}</tbody>
         </table>
       </div>
@@ -3357,6 +3448,9 @@ const PRODUCTION_STEP_LABELS = {
 const IMAGE_GENERATION_MODE_LABELS = {
   ai: '🤖 AI画像生成',
   fallback_pillow: '🖌️ Pillow fallback（テスト用の簡易画像）',
+  // Quest121（External Image Workflow）：Gemini等でCEOが手動生成し
+  // アップロードした画像。
+  external_upload: '🖼️ 外部アップロード（Gemini等・手動）',
 };
 
 function _imageGenerationModeLabel(mode) {
@@ -3398,9 +3492,12 @@ function renderProductionRunResult(projectId, data) {
 
   const commercialReady = !!data.commercial_ready;
   const titleLine = commercialReady ? '制作完了' : 'テスト生成完了（販売用画像は未生成）';
+  const modelLine = data.image_generation_model
+    ? `<div class="creative-direction-text">使用モデル：${esc(data.image_generation_model)}</div>`
+    : '';
   const warningBox = commercialReady ? '' : `
     <div class="error-box" style="margin-top:10px">
-      ⚠️ 現在はテスト用の簡易画像で生成されています。販売用画像ではありません。<br>
+      ⚠️ ${esc(data.commercial_ready_reason || '現在はテスト用の簡易画像で生成されています。販売用画像ではありません。')}<br>
       AI画像生成APIの設定を確認してください。
     </div>
   `;
@@ -3411,6 +3508,7 @@ function renderProductionRunResult(projectId, data) {
       <div class="creative-direction-text"><strong>Project ${esc(projectId)} の${esc(titleLine)}</strong></div>
       <div class="creative-direction-text">種類：${esc(data.asset_type_label || assetTypeLabel(data.asset_type))}</div>
       <div class="creative-direction-text">画像生成方式：${_imageGenerationModeLabel(data.image_generation_mode)}</div>
+      ${modelLine}
       <div class="creative-direction-text">生成画像：${Number(data.image_count || 0)}枚</div>
       <div class="creative-direction-text">確認：${reviewLabel}</div>
       <div class="creative-direction-text">提出データ：${zipLabel}</div>
@@ -3444,7 +3542,7 @@ function runProductionFlow(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 このProjectを制作する'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🤖 内部AIで一括制作（将来のAPI接続用・開発者向け）'; }
     });
 }
 
@@ -3462,7 +3560,7 @@ function viewProductionResult(projectId, btnEl) {
           container.innerHTML = `
             <div class="card full">
               <div class="card-title">Project ${esc(projectId)} の制作結果</div>
-              <div class="ceo-brief-empty">まだ制作結果がありません。「🚀 このProjectを制作する」を実行してください。</div>
+              <div class="ceo-brief-empty">まだ一括制作の結果がありません。「🤖 内部AIで一括制作」を実行してください。</div>
             </div>
           `;
         }
@@ -3476,7 +3574,7 @@ function viewProductionResult(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔍 結果を見る'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔍 結果を見る（一括制作）'; }
     });
 }
 

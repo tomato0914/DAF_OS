@@ -60,8 +60,11 @@ class CeoHomePriorityOrderTest(unittest.TestCase):
 
 
 class ProjectsTabSimplificationTest(unittest.TestCase):
-    """Projectsタブの各Project行が5項目（名前/種類/状態/次にやること/🚀ボタン）
-    中心になっており、詳細操作（📊等）がDeveloper Mode内へ移動していることを確認する。"""
+    """Quest121（External Image Workflow）でProjectsタブの主導線は、
+    内部AI一括制作の🚀ボタンから①〜⑤の外部画像ワークフロー
+    （プロンプト生成→Geminiで画像生成→画像アップロード→品質チェック→
+    提出データ作成）へ変わった。①〜⑤は常時表示のまま、内部AI一括制作は
+    将来のAPI接続用としてDeveloper Mode内へ移動していることを確認する。"""
 
     @classmethod
     def setUpClass(cls):
@@ -71,24 +74,27 @@ class ProjectsTabSimplificationTest(unittest.TestCase):
         end = text.index("function fetchProjects(")
         cls.render_projects_body = text[start:end]
 
-    def test_primary_button_appears_before_developer_mode_toggle(self):
+    def test_external_workflow_steps_appear_before_developer_mode_toggle(self):
         body = self.render_projects_body
-        primary_idx = body.index("🚀 このProjectを制作する")
         dev_mode_idx = body.index("🔧 詳細操作を表示（開発者向け）")
-        self.assertLess(primary_idx, dev_mode_idx)
+        for label in ("① プロンプト生成", "② Geminiで画像生成（CEO手動）", "③ 画像アップロード",
+                      "④ 品質チェック（AIレビュー）", "⑤ 提出データ作成"):
+            with self.subTest(label=label):
+                self.assertLess(body.index(label), dev_mode_idx)
 
-    def test_production_status_button_is_inside_developer_mode(self):
+    def test_production_status_button_is_visible_for_ceo(self):
+        # Quest121：CEOが常時5ステップの進行状況を一目で確認できるよう、
+        # 「📊 進行状況を見る」はDeveloper Modeより前（常時表示）に配置している。
         body = self.render_projects_body
         dev_mode_idx = body.index("🔧 詳細操作を表示（開発者向け）")
         status_idx = body.index("📊 進行状況を見る")
-        self.assertLess(dev_mode_idx, status_idx, "📊 進行状況を見るがDeveloper Modeより前（常時表示）になっています")
+        self.assertLess(status_idx, dev_mode_idx, "📊 進行状況を見るがDeveloper Mode内（常時非表示）になっています")
 
-    def test_step_buttons_are_inside_developer_mode(self):
+    def test_internal_ai_bulk_production_is_inside_developer_mode(self):
         body = self.render_projects_body
         dev_mode_idx = body.index("🔧 詳細操作を表示（開発者向け）")
-        for label in ("④ プロンプト生成", "⑤ 画像生成", "⑥ 確認（AIレビュー）", "⑦ 提出データ作成"):
-            with self.subTest(label=label):
-                self.assertLess(dev_mode_idx, body.index(label))
+        bulk_idx = body.index("🤖 内部AIで一括制作")
+        self.assertLess(dev_mode_idx, bulk_idx)
 
 
 class ReviewPackageTemplateCeoModeWordingTest(unittest.TestCase):

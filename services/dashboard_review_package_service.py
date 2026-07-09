@@ -455,6 +455,20 @@ def build_review_package_summary_markdown(
         for p in blocking_projects:
             lines.append(f"- Project {p.get('project_id')}：{p.get('next_action')}")
 
+    # Quest121（External Image Workflow）：画像生成方法（内部AI／Gemini等の
+    # 外部アップロード／Pillow fallback）はProduction Status Service
+    # （Quest112・Quest121でdetailへ追記）の"image_generation"ステップに
+    # 記録されている。Executive Boardが一覧で確認できるようにする。
+    generation_method_lines = []
+    for p in production_status.get("projects", []):
+        image_step = next((s for s in (p.get("steps") or []) if s.get("id") == "image_generation"), None)
+        if image_step and image_step.get("detail") and image_step.get("status") == "done":
+            generation_method_lines.append(f"- Project {p.get('project_id')}：{image_step['detail']}")
+    if generation_method_lines:
+        lines.append("")
+        lines.append("## 画像生成方法（Projectごと）")
+        lines.extend(generation_method_lines)
+
     return "\n".join(lines) + "\n"
 
 

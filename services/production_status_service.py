@@ -136,10 +136,18 @@ def _check_prompt(project_id: str, outputs_dir: Path | None) -> dict:
 
 def _check_image_generation(project_id: str, asset_type: str, outputs_dir: Path | None) -> dict:
     try:
-        from services.image_generation_pipeline import list_generated_images
+        from services.image_generation_pipeline import list_generated_images, SOURCE_LABELS
         result = list_generated_images(project_id, asset_type=asset_type, outputs_dir=outputs_dir)
         status = STATUS_DONE if result.get("exists") and result.get("image_files") else STATUS_PENDING
-        return _step("image_generation", "画像生成", status)
+        # Quest121：画像生成方法（内部AI／Gemini等の外部アップロード／Pillow
+        # fallback）をCEO・Review Packageが確認できるよう、detailへ記録する。
+        detail = ""
+        if status == STATUS_DONE:
+            source = (result.get("metadata") or {}).get("source")
+            source_label = SOURCE_LABELS.get(source)
+            if source_label:
+                detail = f"画像生成方式：{source_label}"
+        return _step("image_generation", "画像生成", status, detail)
     except Exception as e:
         return _step("image_generation", "画像生成", STATUS_ERROR, str(e))
 

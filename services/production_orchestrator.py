@@ -118,9 +118,15 @@ _STEP_LABELS = {
 # Pillow fallback（GENERATION_MODE_FALLBACK="fallback_pillow"）へ
 # 自動的に切り替える設計になっている（image_generation_pipeline.py自体の
 # 生成ロジックは変更しない）。
-IMAGE_GENERATION_MODEL = "dall-e-2"
+# Quest120：画像生成モデルはservices/image_generation_pipeline.py側の
+# DAF_IMAGE_MODEL環境変数（既定dall-e-2）で管理する。ここでは定数を
+# 持たず、get_image_generation_capability()内でget_image_generation_config()
+# を都度呼んで最新値を反映する（設定変更時に定数がずれる事故を防ぐため）。
 
 COMMERCIAL_READY_REASON_AI = "AI画像生成による生成のため、販売用候補として確認できます。"
+# Quest121：Gemini等の外部画像生成サービスでCEOが手動生成した画像も、
+# Pillow fallbackとは異なり実際の生成AI出力のため販売用候補として扱う。
+COMMERCIAL_READY_REASON_EXTERNAL = "外部画像生成サービス（Gemini等）による制作画像のため、販売用候補として確認できます。"
 COMMERCIAL_READY_REASON_FALLBACK = "Pillow fallback画像のため販売用品質ではありません"
 COMMERCIAL_READY_REASON_UNKNOWN = "画像生成方式が確認できなかったため、販売用として扱えません"
 
@@ -173,21 +179,39 @@ def get_image_generation_capability() -> dict:
     テスト中にAPIキーさえ設定されていればAI呼び出し可能と誤認識される
     問題があったため、Quest119でAI Runtime Guard基準に統一した）。
 
-    戻り値: {"ai_configured": bool, "model": str, "fallback_reason": str | None}
+    Quest120：画像生成モデル・サイズ等（DAF_IMAGE_MODEL等の環境変数、
+    services/image_generation_pipeline.get_image_generation_config()）と、
+    AI Runtime状態（runtime_mode・ai_enabled）もあわせて返す。CEOが
+    「制作する」を押す前に、現在の設定・Runtime状態・fallback理由を
+    まとめて確認できるようにするため（Production Reality Check）。
+
+    戻り値: {"ai_configured": bool, "model": str, "size": str,
+             "quality": str | None, "background": str | None,
+             "runtime_mode": str, "ai_enabled": bool,
+             "fallback_reason": str | None}
     例外を投げない。
     """
     import os
     from services.ai_runtime_guard import is_ai_enabled, get_runtime_mode
+    from services.image_generation_pipeline import get_image_generation_config
 
+    config = get_image_generation_config()
     api_key_present = bool(os.getenv("OPENAI_API_KEY"))
     guard_enabled = is_ai_enabled()
+    runtime_mode = get_runtime_mode()
 
     if guard_enabled and api_key_present:
-        return {"ai_configured": True, "model": IMAGE_GENERATION_MODEL, "fallback_reason": None}
+        return {
+            "ai_configured": True,
+            "model": config["model"], "size": config["size"],
+            "quality": config["quality"], "background": config["background"],
+            "runtime_mode": runtime_mode, "ai_enabled": guard_enabled,
+            "fallback_reason": None,
+        }
 
     if not guard_enabled:
         fallback_reason = (
-            f"AI Runtime Guardが無効です（DAF_RUNTIME_MODE={get_runtime_mode()}）。"
+            f"AI Runtime Guardが無効です（DAF_RUNTIME_MODE={runtime_mode}）。"
             "DAF_RUNTIME_MODE=production かつ DAF_AI_ENABLED=true の場合のみAI画像生成を"
             "使用できます。Pillowによる簡易画像（テスト用、販売用品質ではありません）に"
             "フォールバックします。"
@@ -197,17 +221,26 @@ def get_image_generation_capability() -> dict:
             "OPENAI_API_KEYが未設定のため、Pillowによる簡易画像（テスト用、"
             "販売用品質ではありません）にフォールバックします。"
         )
-    return {"ai_configured": False, "model": IMAGE_GENERATION_MODEL, "fallback_reason": fallback_reason}
+    return {
+        "ai_configured": False,
+        "model": config["model"], "size": config["size"],
+        "quality": config["quality"], "background": config["background"],
+        "runtime_mode": runtime_mode, "ai_enabled": guard_enabled,
+        "fallback_reason": fallback_reason,
+    }
 
 
 def _commercial_readiness(image_generation_mode: str | None) -> tuple[bool, str]:
     """
     Quest119：画像生成方式（image_generation_mode）から、販売用画像として
-    扱ってよいかどうかを判定する。AI画像生成（"ai"）の場合のみTrue。
-    Pillow fallback（"fallback_pillow"）・未実行（None）はFalse。
+    扱ってよいかどうかを判定する。AI画像生成（"ai"）・Quest121の外部画像
+    アップロード（"external_upload"）の場合はTrue。Pillow fallback
+    （"fallback_pillow"）・未実行（None）はFalse。
     """
     if image_generation_mode == "ai":
         return True, COMMERCIAL_READY_REASON_AI
+    if image_generation_mode == "external_upload":
+        return True, COMMERCIAL_READY_REASON_EXTERNAL
     if image_generation_mode == "fallback_pillow":
         return False, COMMERCIAL_READY_REASON_FALLBACK
     return False, COMMERCIAL_READY_REASON_UNKNOWN
@@ -299,6 +332,7 @@ def run_production(
              "completed_steps": list[str], "failed_step": str | None,
              "error": str | None, "image_count": int,
              "image_generation_mode": "ai"|"fallback_pillow"|None,
+             "image_generation_model": str | None,
              "commercial_ready": bool, "commercial_ready_reason": str,
              "review_mode": str | None, "review_needs_fix": bool,
              "zip_filename": str | None, "next_action": str}
@@ -320,6 +354,7 @@ def run_production(
     completed_steps: list[str] = []
     image_count = 0
     image_generation_mode = None
+    image_generation_model = None
     review_mode = None
     review_needs_fix = False
     zip_filename = None
@@ -344,6 +379,7 @@ def run_production(
             "error": error,
             "image_count": image_count,
             "image_generation_mode": image_generation_mode,
+            "image_generation_model": image_generation_model,
             "commercial_ready": commercial_ready,
             "commercial_ready_reason": commercial_ready_reason,
             "review_mode": review_mode,
@@ -377,6 +413,7 @@ def run_production(
             return _finish(STATUS_FAILED, "image_generation", image_result.get("error") or "画像生成に失敗しました")
         image_count = len(image_result.get("image_files") or [])
         image_generation_mode = image_result.get("generation_mode")
+        image_generation_model = image_result.get("generation_model")
     except Exception as e:
         return _finish(STATUS_FAILED, "image_generation", str(e))
     completed_steps.append("image_generation")

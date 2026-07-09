@@ -689,6 +689,59 @@ def api_projects_generated_images(project_id):
         return jsonify({"exists": False, "error": str(e)}), 500
 
 
+_EXTERNAL_UPLOAD_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@app.route("/api/projects/upload-images", methods=["POST"])
+def api_projects_upload_images():
+    """
+    Quest121（External Image Workflow）：CEOがGemini等の外部画像生成
+    サービスで手動生成したPNG/JPEG/WebPを、Projectへ登録する
+    （Projectsタブ「③ 画像アップロード」から呼ばれる）。実API接続は
+    行わない（アップロードされたファイルの検証・保存のみ）。
+
+    複数ファイル（フォームフィールド名"files"）を受け付ける。sourceは
+    "gemini"（既定）または"external_upload"のみ有効（それ以外は
+    "external_upload"に丸められる、services/image_generation_pipeline.py側）。
+    """
+    try:
+        project_id = str(request.form.get("id", "")).strip()
+        safe_id = _safe_project_id(project_id)
+        if not safe_id:
+            return jsonify({"ok": False, "error": "無効なProject IDです"}), 400
+
+        uploaded_files = request.files.getlist("files")
+        if not uploaded_files:
+            return jsonify({"ok": False, "error": "画像ファイルを選択してください"}), 400
+
+        file_bytes_list = []
+        for f in uploaded_files:
+            if not f or not f.filename:
+                continue
+            ext = Path(f.filename).suffix.lower()
+            if ext not in _EXTERNAL_UPLOAD_ALLOWED_EXT:
+                allowed = "/".join(sorted(e.lstrip(".") for e in _EXTERNAL_UPLOAD_ALLOWED_EXT))
+                return jsonify({"ok": False, "error": f"対応していない画像形式です（対応形式: {allowed}）"}), 400
+            file_bytes_list.append(f.read())
+
+        if not file_bytes_list:
+            return jsonify({"ok": False, "error": "画像ファイルを選択してください"}), 400
+
+        asset_type = str(request.form.get("asset_type", "")).strip() or None
+        source = str(request.form.get("source", "")).strip() or None
+
+        from services.image_generation_pipeline import import_external_images, DEFAULT_ASSET_TYPE, SOURCE_GEMINI
+        result = import_external_images(
+            safe_id, file_bytes_list,
+            asset_type=asset_type or DEFAULT_ASSET_TYPE,
+            source=source or SOURCE_GEMINI,
+            outputs_dir=OUTPUTS_DIR,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/generated-assets/image/<path:filename>")
 def api_generated_assets_image(filename):
     """
@@ -922,12 +975,19 @@ def api_production_image_generation_status():
     OPENAI_API_KEY設定済みの3条件をすべて満たす場合のみai_configured=true
     になる。CEOが「制作する」を押す前に、実際に販売用画像が作れる状態かを
     確認できるようにする。
+
+    Quest120：現在の画像生成モデル・サイズ（DAF_IMAGE_MODEL等）とAI Runtime
+    状態（runtime_mode・ai_enabled）もあわせて返す。
     """
     try:
         from services.production_orchestrator import get_image_generation_capability
         return jsonify(get_image_generation_capability())
     except Exception as e:
-        return jsonify({"ai_configured": False, "model": None, "fallback_reason": None, "error": str(e)}), 500
+        return jsonify({
+            "ai_configured": False, "model": None, "size": None, "quality": None,
+            "background": None, "runtime_mode": None, "ai_enabled": False,
+            "fallback_reason": None, "error": str(e),
+        }), 500
 
 
 # ──────────────────────────────────────────
