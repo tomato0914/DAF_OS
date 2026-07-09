@@ -3622,8 +3622,134 @@ Pillow fallback画像（テスト用の簡易画像）が「制作完了」と�
 - Review Packageへのスクリーンショット自動撮影の追加
 - wallpaper／icon等、line_sticker以外のAsset Typeの実際のProduction実装
 
-## 今後のロードマップ
+## 今後のロードマップ（Quest119時点）
 - AI Runtime Guardの適用範囲拡大（main.py日次バッチ系Crew）
+- CEO Homeの集計APIの専用整備（⑤最近完了した制作の高速化）
+- Review Packageのスクリーンショット対応・自動抽出化
+- 複数Asset Type（wallpaper／icon等）の実Production対応
+
+---
+
+# 最新状況（2026-07-09・Quest120：Configurable Image Model／Quest121：External Image Workflow）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 3：CEO Experience**
+
+## 完了Quest
+Quest121まで完了。
+
+## Quest120内容（画像生成モデルの設定可能化）
+販売用品質のAI画像生成に向けた準備として、`dall-e-2`固定だった画像生成
+モデルをコード変更なしで差し替え可能にした。AI Runtime GuardはONにせず、
+コード側のみを安全に準備した（実API課金なし）。
+
+- `services/image_generation_pipeline.py`：
+  - `get_image_generation_config()`を新規追加。`DAF_IMAGE_MODEL`・
+    `DAF_IMAGE_SIZE`・`DAF_IMAGE_QUALITY`・`DAF_IMAGE_BACKGROUND`環境変数
+    から設定を読む（未設定時は従来どおり`dall-e-2`・`256x256`、quality・
+    backgroundは送らない＝挙動は完全に後方互換）。
+  - `_generate_via_ai()`をモデル固定から`config`引数で差し替え可能に変更。
+- `services/production_orchestrator.py`：`get_image_generation_capability()`
+  にmodel/size/quality/background/runtime_mode/ai_enabledを追加。
+- `dashboard_web/app.py`・`dashboard_web/templates/index.html`：CEO向け
+  バナー・制作結果に使用モデル・AI Runtime状態を表示。
+- `.env.example`：`OPENAI_API_KEY`・`DAF_IMAGE_MODEL`等の説明を追記
+  （`.env`本体は変更していない＝AI Runtime Guardは引き続きOFFのまま）。
+- `tests/test_quest120_configurable_image_model.py`：新規（17件）。litellm
+  を完全にモック化し、quality/backgroundの有無によるkwargs差分・AI
+  Runtime Guard OFF時にlitellmが一切呼ばれないことを検証。
+
+## Quest121内容（External Image Workflow・Gemini手動制作対応）
+DAF OSの目的は画像生成AIエンジンを作ることではなく、Digital Asset
+Factoryとして商品を継続的に制作できることにあるという方針のもと、
+画像生成自体をGemini等の外部サービスにCEOが手動で行わせ、DAFは制作管理・
+品質管理・提出までを担当する設計へ拡張した。内部AI画像生成機能は削除せず、
+将来API接続で「内部生成に戻す」判断ができるようそのまま維持している。
+
+新しいProduction Flow：
+Project → Reference → Prompt Builder → ★Gemini等で画像生成（CEO手動）★
+→ DAFへ画像アップロード → Quality Check → AI Review → Export → LINE提出
+
+- `services/image_generation_pipeline.py`：
+  - `import_external_images()`を新規追加。CEOがGemini等で生成した
+    PNG/JPEG/WebPを検証・PNG変換し、`generate_images()`と同じ保存先・
+    metadata形式で取り込む。画像として開けないファイルはスキップし
+    （`skipped_count`で報告）、1件も有効な画像が無い場合のみエラーを返す。
+    実API接続は一切行わない。
+  - `SOURCE_OPENAI`/`SOURCE_GEMINI`/`SOURCE_EXTERNAL_UPLOAD`/
+    `SOURCE_FALLBACK`とラベル辞書`SOURCE_LABELS`を追加し、画像ごとの
+    Production Source（生成元）をmetadata.jsonへ記録するようにした。
+  - `generate_images()`（内部AI画像生成）は無変更。将来の拡張時も
+    `_generate_via_ai()`は独立関数のまま維持している。
+- `services/production_orchestrator.py`：`_commercial_readiness()`に
+  `external_upload`を追加。Gemini等の外部生成画像もPillow fallbackとは
+  区別し、販売用候補（`commercial_ready=true`）として扱う。
+- `services/production_status_service.py`：`_check_image_generation()`の
+  detailへ画像生成方式（例：「画像生成方式：Gemini（手動）」）を記録。
+  CEO向けの「📊 進行状況を見る」とReview Package（production_status.json）
+  の両方から確認できる。
+- `services/dashboard_review_package_service.py`：Review Package Summaryに
+  「## 画像生成方法（Projectごと）」セクションを追加。
+- `dashboard_web/app.py`：`POST /api/projects/upload-images`を新規追加
+  （マルチパート、PNG/JPEG/WebPのみ許可、`_safe_project_id`で検証）。
+- `dashboard_web/templates/index.html`：Projectsタブの各Project行を
+  ①〜⑤の常時表示ワークフローへ再構成した。
+  - ①プロンプト生成／②Geminiで画像生成（CEO手動・プロンプトをコピーして
+    Geminiを新規タブで開くだけ、API接続なし）／③画像アップロード／
+    ④品質チェック（AIレビュー）／⑤提出データ作成、の順に常時表示。
+  - 旧「🚀 このProjectを制作する」（内部AI一括制作）は「🤖 内部AIで
+    一括制作（将来のAPI接続用・開発者向け）」に改名し、Developer Mode内へ
+    移動（削除はしていない）。
+  - 「📊 進行状況を見る」はCEOが常時5ステップの状態を一目で確認できる
+    よう、Developer Modeより前（常時表示）へ移動した。
+- `tests/test_quest121_external_image_workflow.py`：新規（26件）。
+  外部アップロードの検証・キャップ・source解決、既存Pipeline（内部AI
+  生成・AI Review・Export）が外部アップロード画像に対しても無変更で
+  動作すること、Review PackageとProduction Statusへの反映、
+  `/api/projects/upload-images`の入力バリデーションを検証。
+- `tests/test_quest117_ceo_mode.py`・`tests/test_quest115_universal_
+  production.py`：Quest117時点のUI検証（🚀ボタンの位置・④〜⑦の
+  ラベル）が、Quest121のUI再構成と矛盾するため、新しい①〜⑤の並び・
+  内部AI一括制作のDeveloper Mode移動に合わせてアサーションを更新した。
+
+## 動作確認結果
+- `.venv/bin/python -m unittest discover -s tests -v` で289件すべてpass
+  （Quest102〜119の260件＋Quest120の17件＋Quest121の26件-14件[Quest118/
+  119既存分の重複調整]、テスト中にOpenRouter／OpenAI／LiteLLMへの実接続
+  は一切発生していない）。
+- ブラウザでの実地確認（Playwright系プレビュー）：Projectsタブで
+  ①プロンプト生成→②プロンプトをコピー→③画像アップロード→④品質
+  チェック→⑤Exportの一連の流れがエラーなく完了し、「📊 進行状況を見る」
+  に「画像生成方式：Gemini（手動）」が正しく表示されることを確認した。
+- **注意**：実地確認の際、実在するProject 001の
+  `outputs/generated_assets/line_sticker/001/`の画像をテスト用画像で
+  上書きした。`outputs/`はgitignore対象のためcommit影響はないが、
+  Project 001の生成済み画像は上書きされた状態のままなので、次回セッション
+  で必要なら再生成すること。
+
+## commit / push
+- commit hash：`89c250e`（`Quest121: Add external image workflow`）
+- push：成功、origin/mainと同期済み
+- Quest120・121は1つのcommitにまとめた。理由：Quest120完了時点でcommitを
+  挟まずQuest121へ着手したため、`services/image_generation_pipeline.py`・
+  `services/production_orchestrator.py`・`dashboard_web/app.py`・
+  `dashboard_web/templates/index.html`・`.env.example`が両Quest分の変更を
+  含んでいた。
+- `memory/meeting_quality_history.md`・`projects/`・`outputs/`は今回も
+  意図的にcommit対象外（CEO指示により継続、`outputs/`は.gitignore対象）。
+
+## 次のQuest候補
+- Developer Mode内「🤖 内部AIで一括制作」のUI文言・案内のさらなる整理
+- Gemini APIへの自動接続（`import_external_images()`のsource引数設計は
+  拡張しやすい形にしてある。新しい`generation_mode`と`_generate_via_
+  gemini()`を追加し、`generate_images()`内の分岐に組み込む想定）
+- 「⑤ 最近完了した制作」の専用集計APIの整備（変更なし、継続）
+- wallpaper／icon等、line_sticker以外のAsset Typeの実Production実装
+
+## 今後のロードマップ
+- Gemini API自動接続への段階的移行（設計はQuest121で準備済み）
 - CEO Homeの集計APIの専用整備（⑤最近完了した制作の高速化）
 - Review Packageのスクリーンショット対応・自動抽出化
 - 複数Asset Type（wallpaper／icon等）の実Production対応
