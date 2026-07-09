@@ -3399,3 +3399,100 @@ issue_pipeline_service）を読み取り専用で束ねるだけの新規Service
 - 複数Asset Type（wallpaper／icon等）の実Production対応
 - Export Adapterの複数プラットフォーム・複数Asset Type対応
 - Project × IP Memoryの紐付け永続化
+
+---
+
+# 最新状況（2026-07-09・Quest117：CEO Mode）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：Production Phase**
+
+## 完了Quest
+Quest117まで完了。
+
+## Quest117内容
+テーマ「CEO Mode — Think Less. Decide More.」のもと、CEOが毎日見る
+ダッシュボードタブを意思決定中心に再構成した。CEOは技術者ではなく
+「意思決定だけを行う」という前提に立ち、開発者向け情報・AI社員向け情報・
+CEO向け情報が混在していたダッシュボードタブから、CEO向け情報だけを
+先頭に残した。Production Pipeline・AI Review・Export等の中核ロジックは
+一切変更せず、対象はDashboardのフロントエンド（表示順序・情報量・文言）
+のみ。
+
+変更ファイル：
+- `dashboard_web/templates/index.html`
+- `services/dashboard_review_package_service.py`
+- `tests/test_quest117_ceo_mode.py`（新規）
+
+- **CEO Homeを意思決定中心に再構成**：ダッシュボードタブの表示順を
+  以下に固定した。
+  1. ① 今日やること（ceo_brief.actions[0]／actions[0]を再利用）
+  2. ② AI社員からの重要報告（CEO Inboxの箇条書き件数を要約表示、
+     「Inboxを見る」から詳細情報セクションを展開）
+  3. ③ 進行中Project（Project数／要レビュー数／制作完了数の3タイル。
+     Notifications／実装待ちタイルは撤去）
+  4. ④ 要承認事項（`GET /api/approvals`を直接参照、dashboard.md未生成
+     でも正しい件数を表示）
+  5. ⑤ 最近完了した制作（`GET /api/projects`＋各Projectの
+     `GET /api/projects/<id>/production-report`をフロントエンドで束ねて
+     生成、Project名・種類・完成日時を表示。新規集計APIは追加していない）
+  6. 📦 Executive Boardレビュー資料（Quest116のReview Package機能を
+     ここから実行できるよう文言・配置を変更）
+- **情報量削減**：API・Prompt・Production Step・Quality Score詳細等の
+  技術情報、およびCEO Inbox全文・資本配分・Issue Pipeline・週次取締役会・
+  自己改善提案・AI経営会議・実装準備・自律実装フロー・PRドラフト・ログ等
+  （旧「🎯 CEOサマリー」カードを含む）は、すべて末尾の
+  「🔧 詳細情報を見る（開発者・AI社員レポート）」1箇所へ集約し、初期
+  状態で折りたたんだ。
+- **Projectsタブのさらなる簡素化**：常時表示を「Project名／種類／状態／
+  次にやること／🚀このProjectを制作する／⬇提出データをダウンロード
+  （完了時のみ）」に絞り、「📊 進行状況を見る」をDeveloper Mode内へ
+  移動した。
+- **文言のCEO向け平易化**：制作結果パネルの「レビュー：」→「確認：」、
+  「ZIP：」→「提出データ：」、Developer Mode内の「⑥ AIレビュー」→
+  「⑥ 確認（AIレビュー）」、「⑦ 提出用ZIP作成」→「⑦ 提出データ作成」に
+  変更。
+- `services/dashboard_review_package_service.py`：`dashboard_structure.md`・
+  `api_summary.md`・`ux_notes.md`の固定テンプレートをQuest117仕様
+  （CEO Home優先順位・提出データ表記等）に合わせて更新した。
+- `tests/test_quest117_ceo_mode.py`：新規（11件）。CEO Home優先順位
+  （①〜⑤の出現順）・Review Packageボタン文言・Inbox/承認導線の存在、
+  Projectsタブで📊・④〜⑦がDeveloper Mode内にあること、Review
+  Packageテンプレートの文言更新を検証。
+
+## 動作確認結果
+- Dashboard起動・ダッシュボードタブ表示：OK
+- ①今日やること→②AI社員からの重要報告→③進行中Project→④要承認事項→
+  ⑤最近完了した制作→📦Executive Boardレビュー資料の順で実データが
+  表示されることを確認（実装時に②③の表示順序が逆転していたバグを発見し
+  修正済み）
+- 「Inboxを見る」クリックで詳細情報セクションが展開されることを確認
+- Projectsタブの各行が「Project名・種類・状態・次にやること・🚀・
+  ⬇提出データ」のみ常時表示され、📊・④〜⑦がDeveloper Mode内に
+  格納されていることを確認
+- Project 004で「🚀 このProjectを制作する」を実行し、「確認：完了
+  （⚠️ 要確認あり）」「提出データ：生成済み」「⬇ 提出データを
+  ダウンロード」と新しい文言で表示されることを確認
+- `tests/`配下218件（Quest102〜116の207件＋Quest117の11件）すべてpass
+
+## commit / push
+- commit hash：`96ecc2b`（`feat: add CEO mode dashboard`）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- 「⑤ 最近完了した制作」の専用集計APIの整備（現状はフロントエンドで
+  Project一覧＋production-reportを都度集計しており、Project数増加時に
+  やや遅くなる可能性がある）
+- Review Packageへのスクリーンショット自動撮影の追加
+- wallpaper／icon等、line_sticker以外のAsset Typeの実際のProduction実装
+- Project × IP Memoryの紐付け永続化
+
+## 今後のロードマップ
+- CEO Homeの集計APIの専用整備（⑤最近完了した制作の高速化）
+- Review Packageのスクリーンショット対応・自動抽出化
+- 複数Asset Type（wallpaper／icon等）の実Production対応
+- Project × IP Memoryの紐付け永続化
