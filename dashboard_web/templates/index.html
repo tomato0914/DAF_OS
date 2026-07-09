@@ -27,10 +27,10 @@
     ✅ 承認センター <span class="tab-badge" id="pendingBadge" style="display:none"></span>
   </button>
   <button class="tab-btn" data-tab="projects" onclick="switchTab('projects')" id="tabProjects">🗂️ プロジェクト</button>
-  <button class="tab-btn" data-tab="assets" onclick="switchTab('assets')" id="tabAssets">🎨 Generated Assets</button>
-  <button class="tab-btn" data-tab="notifications" onclick="switchTab('notifications')" id="tabNotifications">🔔 Notifications</button>
-  <button class="tab-btn" data-tab="references" onclick="switchTab('references')" id="tabReferences">🎨 References</button>
-  <button class="tab-btn" data-tab="ipmemory" onclick="switchTab('ipmemory')" id="tabIpMemory">🧬 IP Memory</button>
+  <button class="tab-btn" data-tab="assets" onclick="switchTab('assets')" id="tabAssets">🎨 生成物</button>
+  <button class="tab-btn" data-tab="notifications" onclick="switchTab('notifications')" id="tabNotifications">🔔 通知</button>
+  <button class="tab-btn" data-tab="references" onclick="switchTab('references')" id="tabReferences">🖼️ 参考画像</button>
+  <button class="tab-btn" data-tab="ipmemory" onclick="switchTab('ipmemory')" id="tabIpMemory">🧬 キャラクター管理</button>
 </nav>
 
 <!-- ダッシュボードタブ -->
@@ -51,12 +51,12 @@
 <!-- プロジェクトタブ（Quest93） -->
 <main class="container" id="tabProjectCenter" style="display:none">
   <div class="card full">
-    <div class="card-title">🆕 New Project</div>
+    <div class="card-title">🆕 新規プロジェクト</div>
     <div class="project-form">
-      <label class="project-form-label">Project Name</label>
+      <label class="project-form-label">プロジェクト名</label>
       <input type="text" class="project-input" id="newProjectName" placeholder="例：犬のLINEスタンプ販売">
 
-      <label class="project-form-label">Asset Type</label>
+      <label class="project-form-label">種類</label>
       <select class="project-input" id="newProjectAssetType">
         <option value="line_sticker">line_sticker</option>
         <option value="youtube_short">youtube_short</option>
@@ -67,13 +67,13 @@
         <option value="generic">generic</option>
       </select>
 
-      <label class="project-form-label">Vision</label>
+      <label class="project-form-label">ビジョン</label>
       <textarea class="project-input" id="newProjectVision" rows="2" placeholder="例：犬好きの人が毎日使いたくなるLINEスタンプを作る。"></textarea>
 
-      <label class="project-form-label">Success Metrics（1行に1つ）</label>
+      <label class="project-form-label">成功指標（1行に1つ）</label>
       <textarea class="project-input" id="newProjectMetrics" rows="3" placeholder="1作品公開&#10;販売10件&#10;月100円売上"></textarea>
 
-      <button class="btn btn-approve" id="createProjectBtn" onclick="createProject()">Create</button>
+      <button class="btn btn-approve" id="createProjectBtn" onclick="createProject()">作成</button>
     </div>
   </div>
 
@@ -86,7 +86,7 @@
 <!-- Generated Assetsタブ（Dashboard v1試験運用版） -->
 <main class="container" id="tabAssetCenter" style="display:none">
   <div class="card full" id="assetListContent">
-    <div class="card-title">🎨 Generated Assets</div>
+    <div class="card-title">🎨 生成物</div>
     <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
   </div>
   <!-- Image Renderer表示（Quest98：将来Renderer切替できる設計の入口を可視化） -->
@@ -103,7 +103,7 @@
 <!-- Notificationsタブ（Dashboard v1試験運用版） -->
 <main class="container" id="tabNotificationCenter" style="display:none">
   <div class="card full" id="notificationListContent">
-    <div class="card-title">🔔 Notifications</div>
+    <div class="card-title">🔔 通知</div>
     <div class="spinner"><div class="spin"></div><span>読み込み中...</span></div>
   </div>
 </main>
@@ -130,7 +130,7 @@
       <label class="project-form-label">Description</label>
       <textarea class="project-input" id="refUploadDescription" rows="2" placeholder="例：丸い目、やさしい色、シンプルな線"></textarea>
 
-      <button class="btn btn-approve" id="refUploadBtn" onclick="uploadReferenceImage()">Upload</button>
+      <button class="btn btn-approve" id="refUploadBtn" onclick="uploadReferenceImage()">アップロード</button>
     </div>
   </div>
 
@@ -153,7 +153,7 @@
     <div class="project-form">
       <label class="project-form-label">IP名</label>
       <input type="text" class="project-input" id="ipNewName" placeholder="例：mofu">
-      <button class="btn btn-approve" id="ipCreateBtn" onclick="createIp()">Create</button>
+      <button class="btn btn-approve" id="ipCreateBtn" onclick="createIp()">作成</button>
     </div>
   </div>
 
@@ -677,7 +677,7 @@ function renderLauncherCard(count) {
         commit / push / Claude Codeの自動起動は行いません。
       </div>
       <button class="btn btn-launch" id="launchBtn" onclick="startImplementation()" ${disabled}>
-        🚀 実装開始
+        実装プロンプトを作成
       </button>
       <div id="launcherResult" class="launcher-result"></div>
     </div>
@@ -710,7 +710,7 @@ function startImplementation() {
     })
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = '🚀 実装開始';
+      btn.textContent = '実装プロンプトを作成';
     });
 }
 
@@ -773,7 +773,7 @@ function renderAutonomousFlowCard(flow) {
         ${i.product_warning ? `<span class="flow-product-warn">${esc(i.product_warning)}</span>` : ''}
       </span>
       <div class="flow-issue-btns">
-        <button class="btn btn-launch-one" onclick="startImplementationFor('${esc(i.approval_id)}', this)">🚀 このIssueを実装</button>
+        <button class="btn btn-launch-one" onclick="startImplementationFor('${esc(i.approval_id)}', this)">Issue実装プロンプトを作成</button>
         <button class="btn btn-complete" onclick="completeImplementation('${esc(i.approval_id)}', this)">✅ 実装完了</button>
       </div>
     </li>
@@ -784,7 +784,7 @@ function renderAutonomousFlowCard(flow) {
       <div class="flow-notice">
         承認済みの実装アイテム <strong>${Number(flow.count)}件</strong> について、
         Claude Code 向けの実装指示書が生成されました。
-        「🚀 このIssueを実装」を押すと、そのIssueだけを対象にした <code>claude_code_prompt.md</code> が生成されます。
+        「Issue実装プロンプトを作成」を押すと、そのIssueだけを対象にした <code>claude_code_prompt.md</code> が生成されます。
         実装が終わったら「✅ 実装完了」でこのリストから外してください。
       </div>
       <ul class="actions-list">${issueRows}</ul>
@@ -1123,9 +1123,10 @@ function _projectNextAction(project, pendingReviewAssetTypes, hasPendingImplemen
   return '-';
 }
 
-function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementation) {
+function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementation, zipByProjectId) {
   const list = projects || [];
-  let html = '<div class="card-title">🗂️ Project一覧</div>';
+  const zipMap = zipByProjectId || {};
+  let html = '<div class="card-title">🗂️ プロジェクト一覧</div>';
 
   if (list.length === 0) {
     html += '<div class="ceo-brief-empty">登録済みのProjectはありません。上のフォームから作成してください。</div>';
@@ -1135,8 +1136,7 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
       <table class="simple-table">
         <thead>
           <tr>
-            <th>ID</th><th>Name</th><th>Asset Type</th><th>Status</th>
-            <th>Created At</th><th>Next Action</th><th></th>
+            <th>プロジェクト</th><th>状態</th><th>次にやること</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -1145,31 +1145,43 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
       const badge = PROJECT_STATUS_BADGE[p.status] || esc(p.status);
       const nextAction = _projectNextAction(p, pendingReviewAssetTypes, hasPendingImplementation);
       const canGenerateAssets = p.asset_type === 'line_sticker' && p.status === 'active';
+      const zipFile = zipMap[p.id];
+
       html += `
         <tr>
-          <td>${esc(p.id)}</td>
-          <td>${esc(p.name)}</td>
-          <td>📦 ${esc(p.asset_type)}</td>
+          <td>
+            <div>${esc(p.name)}</div>
+            <div class="project-row-sub">${esc(p.id)}・📦 ${esc(p.asset_type)}</div>
+          </td>
           <td>${badge}</td>
-          <td>${esc(p.created_at || '-')}</td>
           <td>${esc(nextAction)}</td>
           <td>
-            ${canGenerateAssets
-              ? `<button class="btn btn-approve" onclick="generateProjectAssets('${esc(p.id)}', this)">Generate Assets</button>`
-              : ''}
-            <button class="btn" onclick="buildProjectPrompt('${esc(p.id)}', this)">④ プロンプト生成</button>
-            <select class="project-input" id="imgGenCount_${esc(p.id)}" style="display:inline-block;width:auto;max-width:70px">
-              <option value="1">1枚</option>
-              <option value="2">2枚</option>
-              <option value="3">3枚</option>
-            </select>
-            <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
-            <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
-            <button class="btn btn-approve" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出用ZIP作成</button>
-            <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
-            <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 LINEスタンプを作る</button>
+            <div class="project-row-actions">
+              <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 LINEスタンプを作る</button>
+              <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
+              ${zipFile
+                ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ ZIPダウンロード</a>`
+                : ''}
+            </div>
+            <details class="project-dev-mode">
+              <summary>🔧 詳細操作を表示（開発者向け）</summary>
+              <div class="project-row-actions" style="margin-top:8px">
+                ${canGenerateAssets
+                  ? `<button class="btn" onclick="generateProjectAssets('${esc(p.id)}', this)">アセット生成（旧UI）</button>`
+                  : ''}
+                <button class="btn" onclick="buildProjectPrompt('${esc(p.id)}', this)">④ プロンプト生成</button>
+                <select class="project-input" id="imgGenCount_${esc(p.id)}" style="display:inline-block;width:auto;max-width:70px">
+                  <option value="1">1枚</option>
+                  <option value="2">2枚</option>
+                  <option value="3">3枚</option>
+                </select>
+                <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
+                <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
+                <button class="btn" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出用ZIP作成</button>
+              </div>
+            </details>
             ${p.status !== 'archived'
-              ? `<button class="btn btn-reject" onclick="archiveProject('${esc(p.id)}', this)">Archive</button>`
+              ? `<div class="project-row-archive"><a href="#" class="project-archive-link" onclick="archiveProject('${esc(p.id)}', this); return false;">アーカイブ</a></div>`
               : ''}
           </td>
         </tr>
@@ -1198,7 +1210,25 @@ function fetchProjects() {
         (assetsData.assets || []).filter(a => a.status === 'pending_review').map(a => a.asset_type)
       );
       const hasPendingImplementation = (homeData.pending_implementation || 0) > 0;
-      renderProjects(projectsData.projects, pendingReviewAssetTypes, hasPendingImplementation);
+      const projects = projectsData.projects || [];
+
+      // Quest114：Project行に「⬇ ZIPダウンロード」を出すかどうかの判定用に、
+      // 各Projectの提出用ZIP有無をあわせて取得する（既存の/export-report
+      // をそのまま再利用、新規APIは追加しない）。
+      Promise.all(
+        projects.map(p =>
+          fetch(`/api/projects/${encodeURIComponent(p.id)}/export-report`)
+            .then(r => r.json())
+            .catch(() => ({ exists: false }))
+        )
+      ).then(exportReports => {
+        const zipByProjectId = {};
+        projects.forEach((p, i) => {
+          const report = (exportReports[i] || {}).report;
+          if (report && report.zip_file) zipByProjectId[p.id] = report.zip_file;
+        });
+        renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementation, zipByProjectId);
+      });
     })
     .catch(e => {
       document.getElementById('projectListContent').innerHTML =
@@ -1212,7 +1242,7 @@ function fetchProjects() {
 
 function renderGeneratedAssets(assets) {
   const list = assets || [];
-  let html = '<div class="card-title">🎨 Generated Assets</div>';
+  let html = '<div class="card-title">🎨 生成物</div>';
 
   if (list.length === 0) {
     html += '<div class="ceo-brief-empty">まだ生成されたAssetはありません。</div>';
@@ -1248,7 +1278,7 @@ function fetchGeneratedAssets() {
     .then(data => renderGeneratedAssets(data.assets))
     .catch(e => {
       document.getElementById('assetListContent').innerHTML =
-        `<div class="error-box">⚠️ Generated Assetsの取得に失敗しました: ${esc(String(e))}</div>`;
+        `<div class="error-box">⚠️ 生成物の取得に失敗しました: ${esc(String(e))}</div>`;
     });
 }
 
@@ -1271,7 +1301,7 @@ function renderLineStickerProjectList(projects) {
   let html = '<div class="card-title">🐶 LINEスタンプ Project別成果物</div>';
 
   if (_lineStickerProjects.length === 0) {
-    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「Generate Assets」、またはダッシュボードの「🚀 スタンプを作る」から生成してください。</div>';
+    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「🚀 LINEスタンプを作る」から生成してください。</div>';
     document.getElementById('lineStickerProjectListContent').innerHTML = html;
     return;
   }
@@ -1355,7 +1385,7 @@ function runQualityCheck(projectId, btnEl) {
     })
     .catch(e => {
       const container = document.getElementById('qualityCheckResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)}：Quality Checkでエラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🧪 Run Quality Check'; }
@@ -1521,7 +1551,7 @@ const NOTIFICATION_LEVEL_BADGE = {
 
 function renderNotifications(notifications) {
   const list = notifications || [];
-  let html = '<div class="card-title">🔔 Notifications</div>';
+  let html = '<div class="card-title">🔔 通知</div>';
 
   if (list.length === 0) {
     html += '<div class="ceo-brief-empty">まだ通知はありません。</div>';
@@ -1554,7 +1584,7 @@ function fetchNotifications() {
     .then(data => renderNotifications(data.notifications))
     .catch(e => {
       document.getElementById('notificationListContent').innerHTML =
-        `<div class="error-box">⚠️ Notificationsの取得に失敗しました: ${esc(String(e))}</div>`;
+        `<div class="error-box">⚠️ 通知の取得に失敗しました: ${esc(String(e))}</div>`;
     });
 }
 
@@ -1584,15 +1614,18 @@ function renderFactoryPanelCard() {
   `).join('');
 
   return `
-    <div class="card full factory-panel">
-      <div class="card-title">🏭 DAF 制御盤</div>
+    <details class="card full factory-panel developer-mode">
+      <summary>🔧 旧機能 / Developer Mode（旧スタンプ生成パイプライン）</summary>
+      <div class="card-title" style="margin-top:10px">🏭 DAF 制御盤（旧UI）</div>
       <p class="factory-panel-desc">
-        ボタン1つで「Project作成 → Execution Plan生成 → Asset生成 → レビュー確認」まで一気に進めます。
+        Quest96時代の旧パイプラインです。現在の推奨導線は🗂️ プロジェクトタブの
+        「🚀 LINEスタンプを作る」です。ボタン1つで「Project作成 → Execution Plan生成 →
+        Asset生成 → レビュー確認」まで一気に進めます。
       </p>
-      <button class="btn btn-factory" id="oneClickStampBtn" onclick="startOneClickStamp()">🚀 スタンプを作る</button>
+      <button class="btn btn-factory" id="oneClickStampBtn" onclick="startOneClickStamp()">旧スタンプ生成（Developer）</button>
       <div class="factory-progress" id="factoryProgress" style="display:none">${steps}</div>
       <div class="factory-result" id="factoryResult"></div>
-    </div>
+    </details>
   `;
 }
 
@@ -1706,7 +1739,7 @@ function startOneClickStamp() {
     })
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = '🚀 スタンプを作る';
+      btn.textContent = '旧スタンプ生成（Developer）';
     });
 }
 
@@ -2122,7 +2155,7 @@ function createIp() {
     .catch(e => alert('エラー: ' + e))
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = 'Create';
+      btn.textContent = '作成';
     });
 }
 
@@ -2532,7 +2565,7 @@ function uploadReferenceImage() {
     .catch(e => alert('エラー: ' + e))
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = 'Upload';
+      btn.textContent = 'アップロード';
     });
 }
 
@@ -2683,22 +2716,22 @@ function renderCeoHomeCard(home) {
       <div class="ceo-summary-grid">
         <div class="ceo-summary-tile tile-blue" onclick="switchTab('projects')" title="プロジェクトを開く">
           <div class="ceo-summary-tile-num">${Number(home.active_projects || 0)}</div>
-          <div class="ceo-summary-tile-label">Active Projects</div>
+          <div class="ceo-summary-tile-label">進行中プロジェクト</div>
         </div>
-        <div class="ceo-summary-tile tile-yellow" onclick="switchTab('assets')" title="Generated Assetsを開く">
+        <div class="ceo-summary-tile tile-yellow" onclick="switchTab('assets')" title="生成物を開く">
           <div class="ceo-summary-tile-num">${Number(home.pending_reviews || 0)}</div>
-          <div class="ceo-summary-tile-label">Pending Reviews</div>
+          <div class="ceo-summary-tile-label">レビュー待ち</div>
         </div>
-        <div class="ceo-summary-tile tile-purple" onclick="switchTab('notifications')" title="Notificationsを開く">
+        <div class="ceo-summary-tile tile-purple" onclick="switchTab('notifications')" title="通知を開く">
           <div class="ceo-summary-tile-num">${Number(home.notifications || 0)}</div>
-          <div class="ceo-summary-tile-label">Notifications</div>
+          <div class="ceo-summary-tile-label">通知</div>
         </div>
         <div class="ceo-summary-tile tile-green" onclick="switchTab('approvals')" title="承認センターを開く">
           <div class="ceo-summary-tile-num">${Number(home.pending_implementation || 0)}</div>
-          <div class="ceo-summary-tile-label">Pending Implementation</div>
+          <div class="ceo-summary-tile-label">実装待ち</div>
         </div>
       </div>
-      <div class="ceo-brief-block-title">▶ Next Action</div>
+      <div class="ceo-brief-block-title">▶ 次にやること</div>
       <div class="ceo-brief-message">🌱 ${esc(home.next_action || '')}</div>
     </div>
   `;
@@ -2725,7 +2758,7 @@ function createProject() {
   const metricsRaw = document.getElementById('newProjectMetrics').value;
 
   if (!name) {
-    alert('Project Nameを入力してください');
+    alert('プロジェクト名を入力してください');
     return;
   }
 
@@ -2753,12 +2786,12 @@ function createProject() {
     .catch(e => alert('エラー: ' + e))
     .finally(() => {
       btn.disabled = false;
-      btn.textContent = 'Create';
+      btn.textContent = '作成';
     });
 }
 
 function archiveProject(projectId, btnEl) {
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ 処理中...'; }
+  if (btnEl) { btnEl.textContent = '⏳ 処理中...'; }
   fetch('/api/projects/archive', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -2769,13 +2802,13 @@ function archiveProject(projectId, btnEl) {
       if (res.ok) {
         fetchProjects();
       } else {
-        alert('Archiveに失敗しました: ' + (res.error || ''));
-        if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Archive'; }
+        alert('アーカイブに失敗しました: ' + (res.error || ''));
+        if (btnEl) { btnEl.textContent = 'アーカイブ'; }
       }
     })
     .catch(e => {
       alert('エラー: ' + e);
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Archive'; }
+      if (btnEl) { btnEl.textContent = 'アーカイブ'; }
     });
 }
 
@@ -2800,7 +2833,7 @@ function generateProjectAssets(projectId, btnEl) {
     })
     .catch(e => alert('エラー: ' + e))
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Generate Assets'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'アセット生成（旧UI）'; }
     });
 }
 
@@ -2815,13 +2848,13 @@ function renderPromptBuilderResult(projectId, data) {
   if (!container) return;
 
   if (!data.ok) {
-    container.innerHTML = `<div class="card full error-box">⚠️ プロンプト生成に失敗しました: ${esc(data.error || '')}</div>`;
+    container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：プロンプト生成に失敗しました: ${esc(data.error || '')}</div>`;
     return;
   }
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">④ プロンプト生成結果（Project ${esc(projectId)}）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（④ プロンプト生成）</div>
       <div class="creative-direction-text">保存先: <code>${esc(data.path || '-')}</code></div>
       <pre class="ip-bible-preview" style="margin-top:8px">${esc(data.prompt || '')}</pre>
     </div>
@@ -2840,7 +2873,7 @@ function buildProjectPrompt(projectId, btnEl) {
     .then(data => renderPromptBuilderResult(projectId, data))
     .catch(e => {
       const container = document.getElementById('promptBuilderResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '④ プロンプト生成'; }
@@ -2857,7 +2890,7 @@ function renderImageGenerationResult(projectId, data) {
   if (!container) return;
 
   if (!data.ok) {
-    container.innerHTML = `<div class="card full error-box">⚠️ 画像生成に失敗しました: ${esc(data.error || '')}</div>`;
+    container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：画像生成に失敗しました: ${esc(data.error || '')}</div>`;
     return;
   }
 
@@ -2870,7 +2903,7 @@ function renderImageGenerationResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">⑤ 画像生成結果（Project ${esc(projectId)}）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（⑤ 画像生成）</div>
       <div class="creative-direction-text">
         生成方式: ${modeLabel}　使用プロンプト: <code>${esc(data.prompt_file || '-')}</code>
       </div>
@@ -2895,7 +2928,7 @@ function generateProjectImage(projectId, btnEl) {
     .then(data => renderImageGenerationResult(projectId, data))
     .catch(e => {
       const container = document.getElementById('imageGenerationResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑤ 画像生成'; }
@@ -2922,7 +2955,7 @@ function renderAiReviewResult(projectId, data) {
   if (!container) return;
 
   if (!data.ok) {
-    container.innerHTML = `<div class="card full error-box">⚠️ AIレビューに失敗しました: ${esc(data.error || '')}</div>`;
+    container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：AIレビューに失敗しました: ${esc(data.error || '')}</div>`;
     return;
   }
 
@@ -2945,7 +2978,7 @@ function renderAiReviewResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">⑥ AIレビュー結果（Project ${esc(projectId)}）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（⑥ AIレビュー）</div>
       <div class="creative-direction-text">
         方式: ${modeLabel}　総合スコア: ${'⭐'.repeat(Number(report.overall_score || 0))} (${esc(String(report.overall_score))}/5)
         ${anyNeedsFix ? '⚠️ 要確認項目あり' : '✅ 要確認項目なし'}
@@ -2976,7 +3009,7 @@ function reviewProjectImages(projectId, btnEl) {
     .then(data => renderAiReviewResult(projectId, data))
     .catch(e => {
       const container = document.getElementById('aiReviewResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑥ AIレビュー'; }
@@ -2994,7 +3027,7 @@ function renderExportResult(projectId, data) {
 
   const report = data.report;
   if (!report) {
-    container.innerHTML = `<div class="card full error-box">⚠️ Exportに失敗しました: ${esc(data.error || '')}</div>`;
+    container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：提出用ZIP作成に失敗しました: ${esc(data.error || '')}</div>`;
     return;
   }
 
@@ -3007,7 +3040,7 @@ function renderExportResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">⑦ 提出用ZIP作成結果（Project ${esc(projectId)}）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（⑦ 提出用ZIP作成）</div>
       <div class="creative-direction-text">${readyLabel}　作成日時: ${esc(report.exported_at || '-')}</div>
       ${errorsHtml}
       ${warningsHtml}
@@ -3028,7 +3061,7 @@ function exportProject(projectId, btnEl) {
     .then(data => renderExportResult(projectId, data))
     .catch(e => {
       const container = document.getElementById('exportResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ 提出用ZIP作成'; }
@@ -3053,7 +3086,7 @@ function renderProductionStatus(projectId, data) {
   if (!container) return;
 
   if (data.error && !data.steps) {
-    container.innerHTML = `<div class="card full error-box">⚠️ 進行状況の取得に失敗しました: ${esc(data.error || '')}</div>`;
+    container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：進行状況の取得に失敗しました: ${esc(data.error || '')}</div>`;
     return;
   }
 
@@ -3069,7 +3102,7 @@ function renderProductionStatus(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">📊 進行状況（Project ${esc(projectId)}）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（📊 進行状況）</div>
       <div class="creative-direction-text"><strong>現在の状態：</strong>${esc(data.current_status || '-')}</div>
       <div class="creative-direction-text"><strong>次にやること：</strong>${esc(data.next_action || '-')}</div>
       <div class="creative-direction-text">${readyLabel}</div>
@@ -3091,7 +3124,7 @@ function showProductionStatus(projectId, btnEl) {
     .then(data => renderProductionStatus(projectId, data))
     .catch(e => {
       const container = document.getElementById('productionStatusResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '📊 進行状況を見る'; }
@@ -3120,7 +3153,7 @@ function renderProductionRunResult(projectId, data) {
     const failedStepLabel = PRODUCTION_STEP_LABELS[data.failed_step] || data.failed_step || '-';
     container.innerHTML = `
       <div class="card full error-box">
-        ⚠️ LINEスタンプ制作が停止しました（失敗ステップ: ${esc(failedStepLabel)}）<br>
+        ⚠️ Project ${esc(projectId)} の制作結果：LINEスタンプ制作が停止しました（失敗ステップ: ${esc(failedStepLabel)}）<br>
         ${esc(data.error || '')}
       </div>
     `;
@@ -3135,7 +3168,7 @@ function renderProductionRunResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">🚀 LINEスタンプ制作が完了しました（Project ${esc(projectId)}）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（🚀 LINEスタンプ制作 完了）</div>
       <div class="creative-direction-text">生成画像：${Number(data.image_count || 0)}枚</div>
       <div class="creative-direction-text">レビュー：${reviewLabel}</div>
       <div class="creative-direction-text">ZIP：${zipLabel}</div>
@@ -3158,7 +3191,7 @@ function runProductionFlow(projectId, btnEl) {
     .then(data => renderProductionRunResult(projectId, data))
     .catch(e => {
       const container = document.getElementById('productionRunResultContent');
-      if (container) container.innerHTML = `<div class="card full error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+      if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 LINEスタンプを作る'; }

@@ -1735,3 +1735,43 @@ body {
   font-size: 0.82rem;
   line-height: 1.5;
 }
+
+/* ─── Quest114：Minimal DAF / Dashboard Cleanup ───
+   CEO向け導線（🚀 LINEスタンプを作る／📊 進行状況を見る／⬇ ZIPダウンロード）と、
+   開発者向けの個別工程ボタン（④〜⑦・旧UI）を分離する。開発者向けは
+   <details>で折りたたみ、CEOの通常画面では見えないようにする。 */
+.simple-table td { white-space: normal; }
+.project-row-sub { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+.project-row-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.project-row-archive { margin-top: 8px; }
+.project-archive-link {
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.project-archive-link:hover { color: var(--danger); }
+
+.project-dev-mode { margin-top: 10px; }
+.project-dev-mode > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.project-dev-mode > summary::-webkit-details-marker { display: none; }
+.project-dev-mode > summary::before { content: '▸ '; }
+.project-dev-mode[open] > summary::before { content: '▾ '; }
+
+.developer-mode { border-left: 4px solid var(--muted); }
+.developer-mode > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-weight: 600;
+  color: var(--muted);
+}
+.developer-mode > summary::-webkit-details-marker { display: none; }
+.developer-mode > summary::before { content: '▸ '; }
+.developer-mode[open] > summary::before { content: '▾ '; }
