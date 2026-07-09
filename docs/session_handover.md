@@ -3090,3 +3090,99 @@ AI Review Engine → Export Engine`）を、新しい処理を書かずにその
 - AIレビュー結果 × CEO承認フローの接続
 - 複数プラットフォームExport Adapter追加
 - 40枚生成対応・画像生成AIの本番接続確認
+
+---
+
+# 最新状況（2026-07-09・Quest114：Minimal DAF / Dashboard Cleanup Sprint）
+
+## 現在地
+- **DAF OS v2**
+- **Chapter 2：AI Company Phase**
+- **Sprint 2：Production Phase**
+
+## 完了Quest
+Quest114まで完了。
+
+## Quest114内容
+Quest113まででLINEスタンプ制作の主要機能は一通り完成したため、今回は
+新機能追加ではなく「Minimal DAF / Less UI, More Decisions.」をテーマに、
+CEOが迷わず使えるようDashboardを断捨離・整理した。Production Pipeline
+自体のロジック（`prompt_builder_v2.py` / `image_generation_pipeline.py` /
+`ai_review_engine.py` / `export_engine.py` / `production_orchestrator.py`）
+・`dashboard_web/app.py`（API）は一切変更していない。
+
+変更ファイル：
+- `dashboard_web/templates/index.html`
+- `dashboard_web/static/style.css`
+
+判断基準（毎日使う→残す／CEOが理解しにくい→名前変更／役割が重複→統合／
+今使わない→非表示）に沿って、以下を実施した。
+
+- **ProjectsタブをCEO向けに整理**：ID／Asset Type／Created At列を廃止し、
+  Project名の下にID・種類を小さく添える形へ統合。CEO向けに残す操作は
+  「🚀 LINEスタンプを作る」「📊 進行状況を見る」「⬇ ZIPダウンロード」
+  （Exportが完了しているProjectのみ表示）「アーカイブ」（目立たない
+  テキストリンク）に絞った。
+- **開発者向け操作の折りたたみ**：Generate Assets／④プロンプト生成／
+  ⑤画像生成／⑥AIレビュー／⑦提出用ZIP作成は、Project行内の
+  `<details>`「🔧 詳細操作を表示（開発者向け）」に収納し、CEO通常画面
+  では非表示にした。ボタン自体・呼び出すAPIは変更していない。
+- **旧v1系パイプラインの退避**：ダッシュボードタブの「🚀 スタンプを
+  作る」（Quest96・Character Bibleベースの旧パイプライン）は、
+  「🔧 旧機能 / Developer Mode（旧スタンプ生成パイプライン）」として
+  折りたたみ・初期非表示にし、ボタン名も「旧スタンプ生成（Developer）」
+  に変更した。現在の推奨導線（Projectsタブの🚀 LINEスタンプを作る）と
+  誤って混同しないようにした。
+- **🚀ボタンの意味を整理**：CEO画面で主役の🚀は「🚀 LINEスタンプを
+  作る」の1つのみとし、「🚀 実装開始」→「実装プロンプトを作成」、
+  「🚀 このIssueを実装」→「Issue実装プロンプトを作成」に文言変更した
+  （承認センターの実装準備フローは非表示にはせず、🚀の意味の混同のみ
+  解消）。
+- **日本語UIへの統一**：タブ名（Generated Assets→生成物／
+  Notifications→通知／References→参考画像／IP Memory→キャラクター
+  管理）、ボタン（Create→作成／Upload→アップロード／Archive→
+  アーカイブ）、New Projectフォームのラベル、CEO Homeタイルの表記等を
+  日本語化した。
+- **結果表示にProject IDを明記**：④〜⑦・📊・🚀の各結果パネルの
+  タイトル・エラーメッセージの両方に「Project ${id} の制作結果」の
+  形式でProject IDを含めるよう統一した（従来はエラー時のみProject ID
+  が欠けているケースがあった）。
+
+## 動作確認結果
+- Dashboard起動・ダッシュボードタブ／プロジェクトタブ表示：OK
+- ダッシュボードタブで「🔧 旧機能 / Developer Mode」が折りたたみ状態
+  で表示され、展開すると「🏭 DAF 制御盤（旧UI）」「旧スタンプ生成
+  （Developer）」ボタンが確認できることを確認
+- プロジェクトタブでProject行が「プロジェクト／状態／次にやること／
+  操作」の4列に整理され、🚀／📊／⬇ ZIPダウンロード（該当Projectの
+  み）／「🔧 詳細操作を表示（開発者向け）」／アーカイブが表示される
+  ことを確認。「🔧 詳細操作を表示」展開で④〜⑦・枚数選択が現れ、通常時
+  は非表示であることを確認
+- Project 002で「🚀 LINEスタンプを作る」を実行し、結果パネルに
+  「Project 002 の制作結果（🚀 LINEスタンプ制作 完了）」と表示される
+  ことを確認
+- `tests/`配下178件（Quest102〜113）すべてpass（バックエンドAPI・
+  ロジックは無変更のためテスト追加なし）
+
+## commit / push
+- commit①：`cf242d0`（`feat: simplify dashboard for CEO workflow`）
+- commit②：`docs: update handover after quest114`（本コミット）
+- push：成功、origin/mainと同期済み
+- `memory/meeting_quality_history.md`・`projects/`は今回も意図的にcommit
+  対象外（CEO指示により継続）
+
+## 次のQuest候補
+- Quest115：DAFをLINEスタンプ専用ではなく、Digital Asset Factoryとして
+  汎用Productionへ昇格させる（asset_type=line_sticker前提の実装
+  ・UI表記を、youtube_short／ios_app等の他Asset Typeにも耐えられる形へ
+  拡張）
+- Project × IP Memoryの紐付け永続化（①②③を毎回ip_name指定せずに
+  判定できるようにする）
+- CEOがAIレビュー結果を踏まえて承認・却下する導線
+- 複数プラットフォームExport Adapter追加
+
+## 今後のロードマップ
+- Quest115：汎用Productionへの昇格（Digital Asset Factory化）
+- Project × IP Memoryの紐付け永続化
+- AIレビュー結果 × CEO承認フローの接続
+- 複数プラットフォームExport Adapter追加
