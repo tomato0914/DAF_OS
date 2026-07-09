@@ -860,9 +860,14 @@ def api_projects_production_status(project_id):
 def api_projects_run_production():
     """
     指定Projectの制作工程（プロンプト生成→画像生成→AIレビュー→Export）を
-    1回で最後まで実行する（Projectsタブの「🚀 LINEスタンプを作る」
+    1回で最後まで実行する（Projectsタブの「🚀 このProjectを制作する」
     ボタンから呼ばれる）。途中のステップが失敗した場合はそこで停止し、
     failed_step・errorを含むレポートを返す。
+
+    Quest115（Universal Production）：asset_typeを明示指定しなかった場合は
+    Production Orchestrator側でProject情報から自動取得する（DEFAULT_ASSET_TYPEを
+    ここで強制しない）。line_sticker以外の未対応Asset Typeの場合は
+    status="unsupported_asset_type"の安全なレスポンスが返る。
     """
     try:
         data = request.get_json(force=True) or {}
@@ -879,12 +884,10 @@ def api_projects_run_production():
         except (TypeError, ValueError):
             count = None
 
-        from services.production_orchestrator import (
-            run_production, DEFAULT_ASSET_TYPE, DEFAULT_COUNT, DEFAULT_PLATFORM,
-        )
+        from services.production_orchestrator import run_production, DEFAULT_COUNT, DEFAULT_PLATFORM
         result = run_production(
             project_id, ip_name=ip_name,
-            asset_type=asset_type or DEFAULT_ASSET_TYPE,
+            asset_type=asset_type,
             count=count or DEFAULT_COUNT,
             platform=platform or DEFAULT_PLATFORM,
             outputs_dir=OUTPUTS_DIR, projects_dir=PROJECTS_DIR,

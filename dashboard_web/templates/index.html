@@ -1113,6 +1113,30 @@ const PROJECT_STATUS_BADGE = {
   archived:  '<span class="state-badge badge-none">⬜ Archived</span>',
 };
 
+// Quest115（Universal Production）：DAF OSはLINEスタンプ専用ツールではなく
+// Digital Asset Production OSであるという設計方針のもと、Asset TypeごとのCEO向け
+// 表示名とProduction実行可否を持つ（services/production_orchestrator.pyの
+// ASSET_TYPE_LABELS・SUPPORTED_PRODUCTION_ASSET_TYPESと対応させている）。
+const ASSET_TYPE_LABELS = {
+  line_sticker: 'LINEスタンプ',
+  youtube_short: 'YouTube Short',
+  blog: 'ブログ素材',
+  ebook: '電子書籍素材',
+  ios_app: 'iOSアプリ素材',
+  saas: 'SaaS素材',
+  generic: 'デジタル資産',
+};
+const SUPPORTED_PRODUCTION_ASSET_TYPES = new Set(['line_sticker']);
+
+function assetTypeLabel(assetType) {
+  return ASSET_TYPE_LABELS[assetType] || assetType || 'デジタル資産';
+}
+
+function assetTypeDisplay(assetType) {
+  const label = assetTypeLabel(assetType);
+  return SUPPORTED_PRODUCTION_ASSET_TYPES.has(assetType) ? label : `${label}（制作フロー準備中）`;
+}
+
 // 1プロジェクトぶんのNext Actionを決める（CEO Homeの優先順位ルールを
 // プロジェクト単位に縮小したもの）。
 function _projectNextAction(project, pendingReviewAssetTypes, hasPendingImplementation) {
@@ -1151,13 +1175,13 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
         <tr>
           <td>
             <div>${esc(p.name)}</div>
-            <div class="project-row-sub">${esc(p.id)}・📦 ${esc(p.asset_type)}</div>
+            <div class="project-row-sub">${esc(p.id)}・種類：${esc(assetTypeDisplay(p.asset_type))}</div>
           </td>
           <td>${badge}</td>
           <td>${esc(nextAction)}</td>
           <td>
             <div class="project-row-actions">
-              <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 LINEスタンプを作る</button>
+              <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 このProjectを制作する</button>
               <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
               ${zipFile
                 ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ ZIPダウンロード</a>`
@@ -1301,7 +1325,7 @@ function renderLineStickerProjectList(projects) {
   let html = '<div class="card-title">🐶 LINEスタンプ Project別成果物</div>';
 
   if (_lineStickerProjects.length === 0) {
-    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「🚀 LINEスタンプを作る」から生成してください。</div>';
+    html += '<div class="ceo-brief-empty">まだLINEスタンプは生成されていません。プロジェクトタブの「🚀 このProjectを制作する」から生成してください。</div>';
     document.getElementById('lineStickerProjectListContent').innerHTML = html;
     return;
   }
@@ -1619,7 +1643,7 @@ function renderFactoryPanelCard() {
       <div class="card-title" style="margin-top:10px">🏭 DAF 制御盤（旧UI）</div>
       <p class="factory-panel-desc">
         Quest96時代の旧パイプラインです。現在の推奨導線は🗂️ プロジェクトタブの
-        「🚀 LINEスタンプを作る」です。ボタン1つで「Project作成 → Execution Plan生成 →
+        「🚀 このProjectを制作する」です。ボタン1つで「Project作成 → Execution Plan生成 →
         Asset生成 → レビュー確認」まで一気に進めます。
       </p>
       <button class="btn btn-factory" id="oneClickStampBtn" onclick="startOneClickStamp()">旧スタンプ生成（Developer）</button>
@@ -3149,11 +3173,22 @@ function renderProductionRunResult(projectId, data) {
   const container = document.getElementById('productionRunResultContent');
   if (!container) return;
 
+  if (data.status === 'unsupported_asset_type') {
+    container.innerHTML = `
+      <div class="card full">
+        <div class="card-title">Project ${esc(projectId)} の制作結果</div>
+        <div class="creative-direction-text">種類：${esc(assetTypeLabel(data.asset_type))}</div>
+        <div class="creative-direction-text">🚧 ${esc(data.message || 'この種類の制作フローは現在準備中です。')}</div>
+      </div>
+    `;
+    return;
+  }
+
   if (!data.ok) {
     const failedStepLabel = PRODUCTION_STEP_LABELS[data.failed_step] || data.failed_step || '-';
     container.innerHTML = `
       <div class="card full error-box">
-        ⚠️ Project ${esc(projectId)} の制作結果：LINEスタンプ制作が停止しました（失敗ステップ: ${esc(failedStepLabel)}）<br>
+        ⚠️ Project ${esc(projectId)} の制作結果：制作が停止しました（失敗ステップ: ${esc(failedStepLabel)}）<br>
         ${esc(data.error || '')}
       </div>
     `;
@@ -3168,7 +3203,9 @@ function renderProductionRunResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">Project ${esc(projectId)} の制作結果（🚀 LINEスタンプ制作 完了）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果</div>
+      <div class="creative-direction-text"><strong>Project ${esc(projectId)} の制作が完了しました</strong></div>
+      <div class="creative-direction-text">種類：${esc(data.asset_type_label || assetTypeLabel(data.asset_type))}</div>
       <div class="creative-direction-text">生成画像：${Number(data.image_count || 0)}枚</div>
       <div class="creative-direction-text">レビュー：${reviewLabel}</div>
       <div class="creative-direction-text">ZIP：${zipLabel}</div>
@@ -3194,7 +3231,7 @@ function runProductionFlow(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 LINEスタンプを作る'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 このProjectを制作する'; }
     });
 }
 
