@@ -281,10 +281,11 @@ def collect_production_status(
 
 def build_dashboard_structure_markdown() -> str:
     """現時点のDashboard仕様に基づく画面構造のMarkdownを返す（固定テンプレート）。"""
-    return """# Dashboard構造（Quest112〜115時点）
+    return """# Dashboard構造（Quest112〜117時点）
 
 ## タブ一覧
-- 📊 ダッシュボード：CEO向け総合ホーム（CEO Home・承認/実装サマリー・旧機能 / Developer Mode）
+- 📊 ダッシュボード：CEO Mode（① 今日やること〜⑤ 最近完了した制作の5項目＋
+  Executive Boardレビュー資料。開発者・AI社員向け詳細は「🔧 詳細情報を見る」へ）
 - ✅ 承認センター：AI起票Issue等の承認・却下・実装完了への遷移
 - 🗂️ プロジェクト：Project作成・Production実行・進捗確認（DAF OSの制作業務の中心タブ）
 - 🎨 生成物：生成済みLINEスタンプ成果物の確認・Quality Check
@@ -293,44 +294,52 @@ def build_dashboard_structure_markdown() -> str:
 - 🧬 キャラクター管理：IP DNA・IP Bible・Style Guideの作成・確認・保存
 
 ## 各タブの役割
-- ダッシュボード：CEOが最初に見る画面。進行中Project数・レビュー待ち・通知・
-  実装待ちの件数と次のアクションを一目で把握できる。
+- ダッシュボード：CEOが最初に見る画面。Quest117（CEO Mode）で
+  「①今日やること→②AI社員からの重要報告→③進行中Project→④要承認事項→
+  ⑤最近完了した制作」の優先順位に整理。API・Prompt・Production Step等の
+  技術詳細は表示せず、「🔧 詳細情報を見る」に集約した。
 - 承認センター：承認待ちアイテムを確認し、承認／却下／実装完了を判断する。
-- プロジェクト：新規Project作成、Production Pipeline（プロンプト生成→画像
-  生成→AIレビュー→Export）の実行、進捗確認を行う。
+- プロジェクト：新規Project作成、制作（プロンプト生成→画像生成→確認→
+  提出データ作成）の実行、進捗確認を行う。
 - 生成物：Project別の生成済みスタンプ画像・Quality Checkを確認する。
 - 通知：システムからの通知を一覧表示する。
 - 参考画像：IP制作の元になる画像をアップロードし、AI解析する。
 - キャラクター管理：IPのDNA・設定資料・描き方ルールを作成・確認する。
 
 ## 主要ボタン一覧（CEO向け）
-- 🚀 このProjectを制作する（プロジェクトタブ・各Project行）：Production
-  Orchestratorを1クリックで実行する主導線（Quest113〜115）
-- 📊 進行状況を見る（プロジェクトタブ・各Project行）：7ステップ進捗を
-  read-onlyで確認する
-- ⬇ ZIPダウンロード（プロジェクトタブ・各Project行、Export完了時のみ表示）
+- 🚀 このProjectを制作する（プロジェクトタブ・各Project行）：制作を
+  1クリックで実行する主導線（Quest113〜115）
+- ⬇ 提出データをダウンロード（プロジェクトタブ・各Project行、制作完了時のみ表示）
+- 承認センターへ／Inboxを見る／📦 Executive Boardレビュー資料を作成
+  （ダッシュボードタブ、Quest117）
 - アーカイブ（プロジェクトタブ・各Project行、控えめなテキストリンク）
 - 承認／却下（承認センター）
 
 ## Projectsタブの操作導線
 1. 上部フォームでProjectを作成
 2. Project行の「🚀 このProjectを制作する」を押す
-3. 完了後、結果パネルで生成画像枚数・レビュー結果・ZIP状況・次にやることを確認
-4. 必要に応じて「📊 進行状況を見る」で詳細ステップを確認
-5. 「⬇ ZIPダウンロード」から提出用ZIPを取得
+3. 完了後、結果パネルで生成画像枚数・確認結果・提出データ状況・次にやることを確認
+4. 「⬇ 提出データをダウンロード」から提出データを取得
 
 ## CEO向け導線
 - Projectsタブの主ボタンは「🚀 このProjectを制作する」に統一（Quest115）
+- Projectごとの表示はProject名／種類／状態／次にやること／🚀ボタンのみ
+  （Quest117、詳細操作はDeveloper Modeへ）
 - Asset Typeが未対応の場合は「種類：〇〇（制作フロー準備中）」と表示し、
   実行しても安全に「準備中」メッセージを返す（エラー扱いにしない）
+- ダッシュボードタブから、承認センター・CEO Inbox・Executive Boardレビュー
+  資料作成へ直接遷移できる（Quest117）
 
-## Developer Modeに退避した操作（Quest114）
+## Developer Modeに退避した操作（Quest114・117）
 - Generate Assets（旧UI）
-- ④ プロンプト生成／⑤ 画像生成／⑥ AIレビュー／⑦ 提出用ZIP作成
-  （各Project行の「🔧 詳細操作を表示（開発者向け）」内に折りたたみ、
-  CEO通常画面では非表示）
+- 📊 進行状況を見る／④ プロンプト生成／⑤ 画像生成／⑥ 確認（AIレビュー）／
+  ⑦ 提出データ作成（各Project行の「🔧 詳細操作を表示（開発者向け）」内に
+  折りたたみ、CEO通常画面では非表示）
 - 🚀 スタンプを作る（Quest96・旧v1系パイプライン）：ダッシュボードタブの
-  「🔧 旧機能 / Developer Mode」内に格納し、初期状態で折りたたみ
+  「🔧 詳細情報を見る」内に格納し、初期状態で折りたたみ
+- CEO Inbox全文・資本配分・Issue Pipeline・週次取締役会・自己改善提案・
+  AI経営会議・実装準備・自律実装フロー・PRドラフト・ログ等（Quest117で
+  「🔧 詳細情報を見る」へ集約、CEO Home本体には出さない）
 """
 
 
@@ -342,14 +351,15 @@ def build_api_summary_markdown() -> str:
         ("POST", "/api/projects/archive", "ProjectをArchived化する", "「アーカイブ」リンク"),
         ("POST", "/api/projects/run-production", "Production Orchestratorを1回実行する（Quest113〜115）", "「🚀 このProjectを制作する」"),
         ("GET", "/api/projects/<id>/production-report", "保存済みproduction_report.jsonを返す", "制作結果パネル"),
-        ("GET", "/api/projects/<id>/production-status", "7ステップ進捗・次のおすすめActionを返す（Quest112）", "「📊 進行状況を見る」"),
-        ("GET", "/api/projects/<id>/download-export", "提出用ZIPをダウンロードさせる", "「⬇ ZIPダウンロード」"),
-        ("GET", "/api/dashboard/home", "CEO Home向け集計値を返す", "CEO Homeタイル"),
+        ("GET", "/api/projects/<id>/production-status", "7ステップ進捗・次のおすすめActionを返す（Quest112）", "「📊 進行状況を見る」（Developer Mode）"),
+        ("GET", "/api/projects/<id>/download-export", "提出データ（ZIP）をダウンロードさせる", "「⬇ 提出データをダウンロード」"),
+        ("GET", "/api/dashboard/home", "CEO Home向け集計値を返す", "③ 進行中Project"),
+        ("GET", "/api/approvals", "承認待ち一覧・件数を返す", "④ 要承認事項"),
         ("GET", "/api/generated-assets", "生成済みAsset一覧を返す", "生成物タブ"),
         ("GET", "/api/notifications", "通知一覧を返す", "通知タブ"),
         ("GET", "/api/references", "参考画像一覧・カテゴリ・Project一覧を返す", "参考画像タブ"),
         ("GET", "/api/ip-memory", "登録済みIP一覧を返す", "キャラクター管理タブ"),
-        ("POST", "/api/dashboard/review-package/create", "Review Packageを生成する（Quest116）", "「📦 Review Packageを作成」"),
+        ("POST", "/api/dashboard/review-package/create", "Executive Boardレビュー資料を生成する（Quest116〜117）", "「📦 Executive Boardレビュー資料を作成」"),
         ("GET", "/api/dashboard/review-package/latest", "最新のReview Package情報を返す（Quest116）", "Review Package結果表示"),
         ("GET", "/api/dashboard/review-package/download/<package_id>", "指定Review PackageのZIPをダウンロードさせる（Quest116）", "「⬇ ダウンロード」"),
     ]
@@ -360,14 +370,23 @@ def build_api_summary_markdown() -> str:
 
 
 def build_ux_notes_markdown() -> str:
-    """現在分かっているUX上の注意点・改善候補を返す（固定テンプレート、Quest114〜115時点）。"""
-    return """# UX Notes（Quest114〜116時点）
+    """現在分かっているUX上の注意点・改善候補を返す（固定テンプレート、Quest114〜117時点）。"""
+    return """# UX Notes（Quest114〜117時点）
 
 - CEO向け導線とDeveloper Modeは分離済み（Quest114）
 - 旧v1系「🚀 スタンプを作る」パイプラインはDeveloper Modeへ退避済み（Quest114）
 - 🚀ボタンの意味は「🚀 このProjectを制作する」に統一済み（Quest115）
 - 未対応Asset Type（line_sticker以外）は「準備中」と安全に表示される（Quest115）
 - production_report.jsonにasset_type/asset_type_labelが記録されるようになった（Quest115）
+- CEO Homeを「①今日やること→②AI社員からの重要報告→③進行中Project→
+  ④要承認事項→⑤最近完了した制作」の意思決定優先順位に整理済み（Quest117）
+- API・Prompt・Production Step等の技術詳細はCEO Homeから排除し、
+  「🔧 詳細情報を見る」1箇所に集約済み（Quest117）
+- Projectsタブの行はProject名／種類／状態／次にやること／🚀ボタンのみに
+  簡素化し、進行状況確認・④〜⑦の個別工程はDeveloper Modeへ移動済み（Quest117）
+- 「⑤ 最近完了した制作」はProject一覧＋各Projectのproduction-reportを
+  都度フロントエンドで集計しており、Project数が増えると初回表示が遅くなる
+  可能性がある（専用の集計APIは未整備、将来対応候補）
 - スクリーンショット自動撮影は未対応（Review Package v1の対象外、将来対応）
 - dashboard_structure.md・api_summary.mdは完全自動抽出ではなく、現時点の
   仕様に基づく固定テンプレート（Dashboard側の変更に追従するには手動更新が必要）

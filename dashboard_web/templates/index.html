@@ -506,49 +506,89 @@ function startMeeting() {
     });
 }
 
-function renderCeoSummaryCard(data) {
-  const pendingCount  = (data.pending_approvals || []).length;
-  const readyCount    = Number(data.approved_implementation_count) || 0;
-  const completedCount = Number(data.completed_count) || 0;
+// ────────────────────────────────
+// Quest117：CEO Mode（Think Less. Decide More.）
+// CEOが毎日見る画面を「① 今日やること → ② AI社員からの重要報告 →
+// ③ 進行中Project → ④ 要承認事項 → ⑤ 最近完了した制作」の優先順位で
+// 並べる。技術的な詳細（API・Prompt・Production Step・Quality Score詳細等）
+// はCEO Homeには出さず、末尾の「🔧 詳細情報を見る」内へ集約する。
+// ────────────────────────────────
 
+function _ceoTodayAction(data) {
   // 今日の最重要アクション：CEO Daily Brief優先、無ければ「次にCEOがやること」にフォールバック
-  const topAction =
-    (data.ceo_brief && data.ceo_brief.actions && data.ceo_brief.actions[0]) ||
+  return (data.ceo_brief && data.ceo_brief.actions && data.ceo_brief.actions[0]) ||
     (data.actions && data.actions[0]) ||
     '現在、緊急のアクションはありません。';
+}
 
-  // OpenRouter残高注意：バックエンドにデータソースがある場合のみ表示（無ければ何も出さない）
+function renderTodayActionCard(data) {
+  const action = stripMarkdown(_ceoTodayAction(data));
   const openrouterWarning = data.openrouter_warning
     ? `<div class="ceo-summary-warning">⚠️ ${esc(data.openrouter_warning)}</div>`
     : '';
-
   return `
     <div class="card full ceo-summary-card">
-      <div class="card-title">🎯 CEOサマリー</div>
+      <div class="card-title">① 今日やること</div>
       <div class="ceo-summary-headline">
         <span class="ceo-summary-headline-icon">👉</span>
         <div class="ceo-summary-headline-body">
-          <div class="ceo-summary-headline-label">今日の最重要アクション</div>
-          <div class="ceo-summary-headline-text">${esc(stripMarkdown(topAction))}</div>
+          <div class="ceo-summary-headline-text">${esc(action)}</div>
         </div>
       </div>
       ${openrouterWarning}
-      <div class="ceo-summary-grid">
-        <div class="ceo-summary-tile tile-yellow" onclick="switchTab('approvals')" title="承認センターを開く">
-          <div class="ceo-summary-tile-num">${pendingCount}</div>
-          <div class="ceo-summary-tile-label">🟡 承認待ち</div>
-        </div>
-        <div class="ceo-summary-tile tile-blue">
-          <div class="ceo-summary-tile-num">${readyCount}</div>
-          <div class="ceo-summary-tile-label">🔵 実装準備完了</div>
-        </div>
-        <div class="ceo-summary-tile tile-green">
-          <div class="ceo-summary-tile-num">${completedCount}</div>
-          <div class="ceo-summary-tile-label">🟢 完了</div>
-        </div>
-      </div>
     </div>
   `;
+}
+
+function _countCeoInboxReports(text) {
+  if (!text) return 0;
+  const matches = text.match(/^- /gm);
+  return matches ? matches.length : 0;
+}
+
+function renderAiReportsCard(ceoInboxText) {
+  const count = _countCeoInboxReports(ceoInboxText);
+  const message = count > 0 ? `AI社員から${count}件の報告があります` : 'AI社員からの新しい報告はありません';
+  return `
+    <div class="card full">
+      <div class="card-title">② AI社員からの重要報告</div>
+      <div class="creative-direction-text">${esc(message)}</div>
+      <button class="btn btn-ghost" style="margin-top:8px" onclick="openCeoInboxDetails()">Inboxを見る</button>
+    </div>
+  `;
+}
+
+function openCeoInboxDetails() {
+  const details = document.getElementById('dashboardDetailsSection');
+  if (details) details.open = true;
+  const anchor = document.getElementById('ceoInboxCardAnchor');
+  if (anchor) anchor.scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderApprovalsSummaryCard(count) {
+  const message = count > 0 ? `要承認：${count}件` : '要承認事項はありません';
+  return `
+    <div class="card full">
+      <div class="card-title">④ 要承認事項</div>
+      <div class="creative-direction-text">${esc(message)}</div>
+      <button class="btn btn-approve" style="margin-top:8px" onclick="switchTab('approvals')">承認センターへ</button>
+    </div>
+  `;
+}
+
+function fetchApprovalsSummary() {
+  // dashboard.md（レガシー日次バッチ）が未生成でも要承認件数が正しく出るよう、
+  // 承認センターと同じ /api/approvals を直接参照する（Quest117）。
+  fetch('/api/approvals')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('ceoApprovalsContainer');
+      if (el) el.innerHTML = renderApprovalsSummaryCard((data.pending || []).length);
+    })
+    .catch(() => {
+      const el = document.getElementById('ceoApprovalsContainer');
+      if (el) el.innerHTML = renderApprovalsSummaryCard(0);
+    });
 }
 
 function renderCompletedCard(items) {
@@ -568,62 +608,11 @@ function renderCompletedCard(items) {
   `;
 }
 
-function renderDashboard(data) {
-  if (data.error) {
-    // Quest96：制御盤・最新成果物カード・CEO Homeは、レガシーな
-    // dashboard.md（main.pyの日次バッチが生成するAI経営会議レポート）が
-    // 無くても常に表示する（CEOがまず触る「工場の制御盤」をレガシー
-    // パイプラインの有無に依存させないため）。
-    document.getElementById('tabDashboard').innerHTML = `
-      ${renderFactoryPanelCard()}
-      <div id="latestArtifactContainer"></div>
-      <div id="creativeDirectionContainer"></div>
-      <div id="referenceLibraryContainer"></div>
-      <div id="ceoHomeContainer"></div>
-      ${renderReviewPackageCard()}
-      <div class="card full error-box">⚠️ ${esc(data.error)}</div>
-    `;
-    fetchCeoHome();
-    fetchLatestArtifact();
-    fetchCreativeDirection();
-    fetchReferenceLibrary();
-    return;
-  }
-  document.getElementById('updatedTime').textContent = '更新: ' + (data.updated || '—');
-
-  // 承認バッジ更新
-  const pending = (data.pending_approvals || []).length;
-  const badge = document.getElementById('pendingBadge');
-  if (pending > 0) {
-    badge.textContent = pending;
-    badge.style.display = 'inline-block';
-  } else {
-    badge.style.display = 'none';
-  }
-
-  const html = `
-    ${renderFactoryPanelCard()}
-    <div id="latestArtifactContainer"></div>
-    <div id="creativeDirectionContainer"></div>
-    <div id="referenceLibraryContainer"></div>
-    <div id="ceoHomeContainer"></div>
-    ${renderReviewPackageCard()}
-
-    ${renderCeoInboxCard(data.ceo_inbox)}
-    ${renderCapitalAllocationCard(data.capital_allocation)}
-    ${renderIssuePipelineCard(data.issue_pipeline)}
-    ${renderWeeklyBoardMeetingCard(data.weekly_board_meeting)}
-    ${renderSelfImprovementCard(data.self_improvement)}
-
-    ${renderMeetingCard()}
-    ${renderCeoSummaryCard(data)}
-    ${renderCeoBriefCard(data.ceo_brief)}
-    ${renderReflectionCard(data.reflection)}
-    ${renderLauncherCard(data.approved_implementation_count)}
-    ${renderAutonomousFlowCard(data.autonomous_flow)}
-    ${renderCompletedCard(data.completed_items)}
-    ${renderPrDraftCard(data.pr_draft)}
-
+// Quest117：CEO Homeに出す5項目＋Review Package以外（旧v1パイプライン・
+// AI社員向け生レポート・開発者向けログ等）を1つの折りたたみへ集約する
+// 共通パーツ。data.error（dashboard.md未生成）の場合でも同じ構成にする。
+function _dashboardDetailsSectionHtml(data) {
+  const logSection = data.error ? '' : `
     <details class="card full log-section">
       <summary><span class="card-title">📋 ログ・補足情報</span></summary>
       <div class="log-section-body">
@@ -660,8 +649,69 @@ function renderDashboard(data) {
       </div>
     </details>
   `;
+
+  return `
+    <details class="card full developer-mode" id="dashboardDetailsSection">
+      <summary>🔧 詳細情報を見る（開発者・AI社員レポート）</summary>
+      <div style="margin-top:14px">
+        ${renderFactoryPanelCard()}
+        <div id="latestArtifactContainer"></div>
+        <div id="creativeDirectionContainer"></div>
+        <div id="referenceLibraryContainer"></div>
+
+        <div id="ceoInboxCardAnchor">${renderCeoInboxCard(data.ceo_inbox)}</div>
+        ${renderCapitalAllocationCard(data.capital_allocation)}
+        ${renderIssuePipelineCard(data.issue_pipeline)}
+        ${renderWeeklyBoardMeetingCard(data.weekly_board_meeting)}
+        ${renderSelfImprovementCard(data.self_improvement)}
+
+        ${renderMeetingCard()}
+        ${renderCeoBriefCard(data.ceo_brief)}
+        ${renderReflectionCard(data.reflection)}
+        ${renderLauncherCard(data.approved_implementation_count)}
+        ${renderAutonomousFlowCard(data.autonomous_flow)}
+        ${renderCompletedCard(data.completed_items)}
+        ${renderPrDraftCard(data.pr_draft)}
+
+        ${data.error ? `<div class="card full error-box">⚠️ ${esc(data.error)}</div>` : ''}
+        ${logSection}
+      </div>
+    </details>
+  `;
+}
+
+function renderDashboard(data) {
+  // Quest117（CEO Mode）：CEOが毎日見る画面は「① 今日やること →
+  // ② AI社員からの重要報告 → ③ 進行中Project → ④ 要承認事項 →
+  // ⑤ 最近完了した制作」の優先順位で並べ、Review Packageへもここから
+  // アクセスできるようにする。レガシーなdashboard.md（今日の状況・進捗
+  // バー等）が無くても①②④は常に表示できるため、Quest96同様
+  // data.errorの有無に関わらず同じ構成を使う。
+  document.getElementById('updatedTime').textContent = '更新: ' + (data.updated || '—');
+
+  // 承認バッジ更新
+  const pending = (data.pending_approvals || []).length;
+  const badge = document.getElementById('pendingBadge');
+  if (pending > 0) {
+    badge.textContent = pending;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  const html = `
+    ${renderTodayActionCard(data)}
+    ${renderAiReportsCard(data.ceo_inbox)}
+    <div id="ceoHomeContainer"></div>
+    <div id="ceoApprovalsContainer"></div>
+    <div id="ceoRecentProductionsContainer"></div>
+    ${renderReviewPackageCard()}
+
+    ${_dashboardDetailsSectionHtml(data)}
+  `;
   document.getElementById('tabDashboard').innerHTML = html;
   fetchCeoHome();
+  fetchApprovalsSummary();
   fetchLatestArtifact();
   fetchCreativeDirection();
   fetchReferenceLibrary();
@@ -1184,14 +1234,14 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
           <td>
             <div class="project-row-actions">
               <button class="btn btn-approve" onclick="runProductionFlow('${esc(p.id)}', this)">🚀 このProjectを制作する</button>
-              <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
               ${zipFile
-                ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ ZIPダウンロード</a>`
+                ? `<a class="btn btn-ghost" href="/api/projects/${encodeURIComponent(p.id)}/download-export" download>⬇ 提出データをダウンロード</a>`
                 : ''}
             </div>
             <details class="project-dev-mode">
               <summary>🔧 詳細操作を表示（開発者向け）</summary>
               <div class="project-row-actions" style="margin-top:8px">
+                <button class="btn btn-ghost" onclick="showProductionStatus('${esc(p.id)}', this)">📊 進行状況を見る</button>
                 ${canGenerateAssets
                   ? `<button class="btn" onclick="generateProjectAssets('${esc(p.id)}', this)">アセット生成（旧UI）</button>`
                   : ''}
@@ -1202,8 +1252,8 @@ function renderProjects(projects, pendingReviewAssetTypes, hasPendingImplementat
                   <option value="3">3枚</option>
                 </select>
                 <button class="btn" onclick="generateProjectImage('${esc(p.id)}', this)">⑤ 画像生成</button>
-                <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ AIレビュー</button>
-                <button class="btn" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出用ZIP作成</button>
+                <button class="btn" onclick="reviewProjectImages('${esc(p.id)}', this)">⑥ 確認（AIレビュー）</button>
+                <button class="btn" onclick="exportProject('${esc(p.id)}', this)">⑦ 提出データ作成</button>
               </div>
             </details>
             ${p.status !== 'archived'
@@ -2734,41 +2784,92 @@ document.addEventListener('keydown', (e) => {
 // CEO Home（Dashboard v1試験運用版・ダッシュボードタブ最上部）
 // ────────────────────────────────
 
-function renderCeoHomeCard(home) {
+function renderCeoHomeStatsCard(home, completedCount) {
   if (!home) return '';
   return `
     <div class="card full ceo-summary-card">
-      <div class="card-title">🏠 CEO Home</div>
+      <div class="card-title">③ 進行中Project</div>
       <div class="ceo-summary-grid">
         <div class="ceo-summary-tile tile-blue" onclick="switchTab('projects')" title="プロジェクトを開く">
           <div class="ceo-summary-tile-num">${Number(home.active_projects || 0)}</div>
-          <div class="ceo-summary-tile-label">進行中プロジェクト</div>
+          <div class="ceo-summary-tile-label">Project数</div>
         </div>
         <div class="ceo-summary-tile tile-yellow" onclick="switchTab('assets')" title="生成物を開く">
           <div class="ceo-summary-tile-num">${Number(home.pending_reviews || 0)}</div>
-          <div class="ceo-summary-tile-label">レビュー待ち</div>
+          <div class="ceo-summary-tile-label">要レビュー数</div>
         </div>
-        <div class="ceo-summary-tile tile-purple" onclick="switchTab('notifications')" title="通知を開く">
-          <div class="ceo-summary-tile-num">${Number(home.notifications || 0)}</div>
-          <div class="ceo-summary-tile-label">通知</div>
-        </div>
-        <div class="ceo-summary-tile tile-green" onclick="switchTab('approvals')" title="承認センターを開く">
-          <div class="ceo-summary-tile-num">${Number(home.pending_implementation || 0)}</div>
-          <div class="ceo-summary-tile-label">実装待ち</div>
+        <div class="ceo-summary-tile tile-green" onclick="switchTab('projects')" title="プロジェクトを開く">
+          <div class="ceo-summary-tile-num">${Number(completedCount || 0)}</div>
+          <div class="ceo-summary-tile-label">制作完了数</div>
         </div>
       </div>
-      <div class="ceo-brief-block-title">▶ 次にやること</div>
-      <div class="ceo-brief-message">🌱 ${esc(home.next_action || '')}</div>
     </div>
   `;
 }
 
-function fetchCeoHome() {
-  fetch('/api/dashboard/home')
+function renderRecentProductionsCard(rows) {
+  if (!rows || rows.length === 0) {
+    return `
+      <div class="card full">
+        <div class="card-title">⑤ 最近完了した制作</div>
+        <div class="ceo-brief-empty">まだ完了した制作はありません。</div>
+      </div>
+    `;
+  }
+  const itemRows = rows.map(r => `
+    <div class="completed-row">
+      <span class="completed-row-title">✅ ${esc(r.name)}（${esc(r.asset_type_label)}）</span>
+      <span class="completed-row-meta">${esc(r.finished_at || '-')}</span>
+    </div>
+  `).join('');
+  return `
+    <div class="card full card-accent-green">
+      <div class="card-title">⑤ 最近完了した制作</div>
+      <div class="products-list">${itemRows}</div>
+    </div>
+  `;
+}
+
+function _fetchProductionReportsSummary() {
+  // ⑤ 最近完了した制作 / ③ 制作完了数 の両方に使う。既存の
+  // GET /api/projects・GET /api/projects/<id>/production-report を
+  // そのまま再利用するだけで、新しい集計APIは追加しない。
+  return fetch('/api/projects')
     .then(r => r.json())
     .then(data => {
-      const el = document.getElementById('ceoHomeContainer');
-      if (el) el.innerHTML = renderCeoHomeCard(data);
+      const projects = data.projects || [];
+      return Promise.all(projects.map(p =>
+        fetch(`/api/projects/${encodeURIComponent(p.id)}/production-report`)
+          .then(r => r.json())
+          .then(res => ({ project: p, report: (res.exists && res.report) ? res.report : null }))
+          .catch(() => ({ project: p, report: null }))
+      ));
+    })
+    .then(results => {
+      const rows = results
+        .filter(({ report }) => report && report.status === 'success')
+        .map(({ project, report }) => ({
+          project_id: project.id,
+          name: project.name,
+          asset_type_label: report.asset_type_label || assetTypeLabel(project.asset_type),
+          finished_at: report.finished_at,
+        }))
+        .sort((a, b) => (b.finished_at || '').localeCompare(a.finished_at || ''));
+      return { count: rows.length, recent: rows.slice(0, 5) };
+    })
+    .catch(() => ({ count: 0, recent: [] }));
+}
+
+function fetchCeoHome() {
+  Promise.all([
+    fetch('/api/dashboard/home').then(r => r.json()),
+    _fetchProductionReportsSummary(),
+  ])
+    .then(([home, productions]) => {
+      const statsEl = document.getElementById('ceoHomeContainer');
+      if (statsEl) statsEl.innerHTML = renderCeoHomeStatsCard(home, productions.count);
+      const recentEl = document.getElementById('ceoRecentProductionsContainer');
+      if (recentEl) recentEl.innerHTML = renderRecentProductionsCard(productions.recent);
     })
     .catch(() => {
       const el = document.getElementById('ceoHomeContainer');
@@ -3066,7 +3167,7 @@ function renderExportResult(projectId, data) {
 
   container.innerHTML = `
     <div class="card full">
-      <div class="card-title">Project ${esc(projectId)} の制作結果（⑦ 提出用ZIP作成）</div>
+      <div class="card-title">Project ${esc(projectId)} の制作結果（⑦ 提出データ作成）</div>
       <div class="creative-direction-text">${readyLabel}　作成日時: ${esc(report.exported_at || '-')}</div>
       ${errorsHtml}
       ${warningsHtml}
@@ -3090,7 +3191,7 @@ function exportProject(projectId, btnEl) {
       if (container) container.innerHTML = `<div class="card full error-box">⚠️ Project ${esc(projectId)} の制作結果：エラーが発生しました: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ 提出用ZIP作成'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⑦ 提出データ作成'; }
     });
 }
 
@@ -3200,7 +3301,7 @@ function renderProductionRunResult(projectId, data) {
   const reviewLabel = data.review_needs_fix ? '完了（⚠️ 要確認あり）' : '完了';
   const zipLabel = data.zip_filename ? `生成済み（${esc(data.zip_filename)}）` : '未生成';
   const downloadHtml = data.zip_filename
-    ? `<a class="btn btn-approve" href="/api/projects/${encodeURIComponent(projectId)}/download-export" download>⬇ ${esc(data.zip_filename)} をダウンロード</a>`
+    ? `<a class="btn btn-approve" href="/api/projects/${encodeURIComponent(projectId)}/download-export" download>⬇ 提出データをダウンロード</a>`
     : '';
 
   container.innerHTML = `
@@ -3209,8 +3310,8 @@ function renderProductionRunResult(projectId, data) {
       <div class="creative-direction-text"><strong>Project ${esc(projectId)} の制作が完了しました</strong></div>
       <div class="creative-direction-text">種類：${esc(data.asset_type_label || assetTypeLabel(data.asset_type))}</div>
       <div class="creative-direction-text">生成画像：${Number(data.image_count || 0)}枚</div>
-      <div class="creative-direction-text">レビュー：${reviewLabel}</div>
-      <div class="creative-direction-text">ZIP：${zipLabel}</div>
+      <div class="creative-direction-text">確認：${reviewLabel}</div>
+      <div class="creative-direction-text">提出データ：${zipLabel}</div>
       <div class="creative-direction-text" style="margin-top:8px"><strong>次にやること</strong></div>
       <div class="creative-direction-text">${esc(data.next_action || '')}</div>
       <div style="margin-top:10px">${downloadHtml}</div>
@@ -3273,12 +3374,12 @@ function _reviewPackageResultHtml(data) {
 function renderReviewPackageCard() {
   return `
     <div class="card full">
-      <div class="card-title">📦 Dashboard Review Package</div>
+      <div class="card-title">📦 Executive Boardレビュー資料</div>
       <p class="factory-panel-desc">
-        現在のDashboard構造・Project状況・Production進捗をまとめて出力し、
-        Executive Board（CEO／外部レビュー）へ提出できるパッケージを作成します。
+        現在のDashboard構造・Project状況・制作の進み具合をまとめて出力し、
+        Executive Board（CEO／外部レビュー）へ提出できる資料を作成します。
       </p>
-      <button class="btn btn-approve" id="reviewPackageBtn" onclick="createReviewPackage()">📦 Review Packageを作成</button>
+      <button class="btn btn-approve" id="reviewPackageBtn" onclick="createReviewPackage()">📦 Executive Boardレビュー資料を作成</button>
       <div id="reviewPackageResult" style="margin-top:10px">${_reviewPackageResultHtml(lastReviewPackageResult)}</div>
     </div>
   `;
@@ -3301,7 +3402,7 @@ function createReviewPackage() {
       if (container) container.innerHTML = `<div class="error-box">⚠️ エラー: ${esc(String(e))}</div>`;
     })
     .finally(() => {
-      if (btn) { btn.disabled = false; btn.textContent = '📦 Review Packageを作成'; }
+      if (btn) { btn.disabled = false; btn.textContent = '📦 Executive Boardレビュー資料を作成'; }
     });
 }
 
