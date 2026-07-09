@@ -914,6 +914,70 @@ def api_projects_production_report(project_id):
 
 
 # ──────────────────────────────────────────
+# Dashboard Review Package（Quest116）
+# DAF OS自身が「今どんな状態か」をExecutive Board（CEO／外部レビュー）向けに
+# Markdown/JSON/ZIPとして出力する。既存Service（project_service・
+# production_status_service・production_orchestrator等）を読み取り専用で
+# 束ねるだけで、Production Pipeline本体には変更を加えない。
+# ──────────────────────────────────────────
+
+_REVIEW_PACKAGES_DIR = OUTPUTS_DIR / "review_packages"
+
+
+def _safe_review_package_id(raw_id: str) -> str | None:
+    """package_idがフォルダ名として安全かチェックする（_safe_project_idと同じ方針）。"""
+    if not raw_id or not re.match(r"^[\w\-]+$", raw_id):
+        return None
+    return raw_id
+
+
+@app.route("/api/dashboard/review-package/create", methods=["POST"])
+def api_dashboard_review_package_create():
+    """
+    Review Package（dashboard_structure.md・api_summary.md・
+    project_summary.json・production_status.json・ceo_home_summary.json・
+    ux_notes.md・review_package_summary.md・review_package.zip）を
+    outputs/review_packages/<package_id>/へ生成する
+    （ダッシュボードの「📦 Review Packageを作成」ボタンから呼ばれる）。
+    """
+    try:
+        from services.dashboard_review_package_service import create_review_package
+        result = create_review_package(outputs_dir=OUTPUTS_DIR, projects_dir=PROJECTS_DIR)
+        return jsonify(result), (200 if result.get("ok") else 500)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/dashboard/review-package/latest")
+def api_dashboard_review_package_latest():
+    """最新のReview Package情報（package_id・含まれるファイル一覧）を返す。"""
+    try:
+        from services.dashboard_review_package_service import get_latest_review_package
+        latest = get_latest_review_package(outputs_dir=OUTPUTS_DIR)
+        if latest is None:
+            return jsonify({"exists": False})
+        return jsonify({"exists": True, **latest})
+    except Exception as e:
+        return jsonify({"exists": False, "error": str(e)}), 500
+
+
+@app.route("/api/dashboard/review-package/download/<package_id>")
+def api_dashboard_review_package_download(package_id):
+    """指定Review Packageのreview_package.zipをダウンロードさせる。"""
+    safe_id = _safe_review_package_id(package_id)
+    if not safe_id:
+        abort(400)
+    try:
+        from services.dashboard_review_package_service import get_review_package_zip_path
+        zip_path = get_review_package_zip_path(safe_id, outputs_dir=OUTPUTS_DIR)
+        if not zip_path:
+            abort(404)
+        return send_from_directory(zip_path.parent, zip_path.name, as_attachment=True)
+    except Exception:
+        abort(404)
+
+
+# ──────────────────────────────────────────
 # Dashboard v1（試験運用版）API
 # CEO Home・Generated Assets・Notificationsタブ向け（読み取り専用）。
 # 各エンドポイントは情報源ごとに個別にtry/exceptで守り、1つが読み込めなくても

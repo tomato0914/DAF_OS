@@ -580,6 +580,7 @@ function renderDashboard(data) {
       <div id="creativeDirectionContainer"></div>
       <div id="referenceLibraryContainer"></div>
       <div id="ceoHomeContainer"></div>
+      ${renderReviewPackageCard()}
       <div class="card full error-box">⚠️ ${esc(data.error)}</div>
     `;
     fetchCeoHome();
@@ -606,6 +607,7 @@ function renderDashboard(data) {
     <div id="creativeDirectionContainer"></div>
     <div id="referenceLibraryContainer"></div>
     <div id="ceoHomeContainer"></div>
+    ${renderReviewPackageCard()}
 
     ${renderCeoInboxCard(data.ceo_inbox)}
     ${renderCapitalAllocationCard(data.capital_allocation)}
@@ -3232,6 +3234,74 @@ function runProductionFlow(projectId, btnEl) {
     })
     .finally(() => {
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🚀 このProjectを制作する'; }
+    });
+}
+
+// ────────────────────────────────
+// Quest116：📦 Dashboard Review Package
+// DAF OS自身の状態（Dashboard構造・API一覧・Project一覧・Production Status・
+// CEO Home集計・UX Notes）をMarkdown/JSON/ZIPとしてExecutive Board向けに
+// 出力する。既存Serviceを読み取り専用で束ねるだけで、新しい状態は保存しない。
+// ────────────────────────────────
+
+// Quest52のlastMeetingResultと同じ考え方：自動更新（30秒ごと）による
+// ダッシュボードタブ全体の再描画で、直前に作成したReview Packageの結果が
+// 消えてしまわないよう、モジュール変数に保持してrenderReviewPackageCard()の
+// 再呼び出し時にも復元する。
+let lastReviewPackageResult = null; // { ok, error, created_at, package_id, files }
+
+function _reviewPackageResultHtml(data) {
+  if (!data) return '';
+
+  if (!data.ok) {
+    return `<div class="error-box">⚠️ Review Packageの作成に失敗しました: ${esc(data.error || '')}</div>`;
+  }
+
+  const fileRows = (data.files || []).map(f => `<li><code>${esc(f)}</code></li>`).join('');
+
+  return `
+    <div class="creative-direction-text"><strong>Review Packageを作成しました</strong></div>
+    <div class="creative-direction-text">作成日時：${esc(data.created_at || '-')}</div>
+    <div class="creative-direction-text" style="margin-top:6px">含まれるファイル：</div>
+    <ul class="actions-list">${fileRows}</ul>
+    <div style="margin-top:10px">
+      <a class="btn btn-approve" href="/api/dashboard/review-package/download/${encodeURIComponent(data.package_id)}" download>⬇ review_package.zip をダウンロード</a>
+    </div>
+  `;
+}
+
+function renderReviewPackageCard() {
+  return `
+    <div class="card full">
+      <div class="card-title">📦 Dashboard Review Package</div>
+      <p class="factory-panel-desc">
+        現在のDashboard構造・Project状況・Production進捗をまとめて出力し、
+        Executive Board（CEO／外部レビュー）へ提出できるパッケージを作成します。
+      </p>
+      <button class="btn btn-approve" id="reviewPackageBtn" onclick="createReviewPackage()">📦 Review Packageを作成</button>
+      <div id="reviewPackageResult" style="margin-top:10px">${_reviewPackageResultHtml(lastReviewPackageResult)}</div>
+    </div>
+  `;
+}
+
+function createReviewPackage() {
+  const btn = document.getElementById('reviewPackageBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 作成中...'; }
+
+  fetch('/api/dashboard/review-package/create', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      lastReviewPackageResult = data;
+      const container = document.getElementById('reviewPackageResult');
+      if (container) container.innerHTML = _reviewPackageResultHtml(data);
+    })
+    .catch(e => {
+      lastReviewPackageResult = { ok: false, error: String(e) };
+      const container = document.getElementById('reviewPackageResult');
+      if (container) container.innerHTML = `<div class="error-box">⚠️ エラー: ${esc(String(e))}</div>`;
+    })
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.textContent = '📦 Review Packageを作成'; }
     });
 }
 
